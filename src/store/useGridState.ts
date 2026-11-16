@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { Point2D, GridCoord, SwingPoint, CandleData, ChartDisplayMode } from "../types/gann";
 import { identifyCandlestickPatterns } from "../utils/candlestickPatterns";
+import { verifyKeEAspectRatio, SentinelAuditResult } from "../utils/ratioSentinel";
 
 // Generates rich sample multi-session data with classic Japanese candlestick patterns & swing pivots
 function generateSampleCandleDataset(basePrice = 21500, pricePerUnit = 25.0): {
@@ -90,6 +91,8 @@ export interface GridState {
   readonly baseUnit: number;  // 12px = 1 minor square (1/8th inch)
   readonly majorUnit: number; // 96px = 1 major block (1 inch = 8 * 12px)
   readonly subdivisions: number; // 8 minor squares per major block
+  aspectRatioAudit: SentinelAuditResult;
+  validateAspectRatio: () => SentinelAuditResult;
 
   // Chart Rendering Mode: Candlestick, OHLC Bar, Swing Step, or Hybrid
   chartMode: ChartDisplayMode;
@@ -175,6 +178,19 @@ export const useGridState = create<GridState>((set, get) => ({
   baseUnit: 12,
   majorUnit: 96,
   subdivisions: 8,
+  aspectRatioAudit: verifyKeEAspectRatio(12, 96),
+  validateAspectRatio: () => {
+    const audit = verifyKeEAspectRatio(get().baseUnit, get().majorUnit);
+    if (audit.correctionApplied) {
+      set({
+        baseUnit: audit.baseUnit,
+        majorUnit: audit.majorUnit,
+        subdivisions: audit.subdivisions,
+        aspectRatioAudit: audit,
+      });
+    }
+    return audit;
+  },
 
   // Default to HYBRID_CANDLE_SWING for multi-perspective geometric analysis
   chartMode: "HYBRID_CANDLE_SWING",

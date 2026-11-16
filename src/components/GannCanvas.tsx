@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from "react";
 import { useGridState } from "../store/useGridState";
 import { GridTheme } from "../types/gann";
+import { verifyKeEAspectRatio, auditCanvasBackingStore } from "../utils/ratioSentinel";
 
 // Classic drafting room color palette for Keuffel & Esser 8x8 engineering vellum
 const DRAFTING_THEME: GridTheme = {
@@ -91,6 +92,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     panY: pan.y,
     zoom,
   });
+
+  // Sentinel Watchdog Notification Timer & Audit Refs
+  const sentinelNoticeTimerRef = useRef<number>(Date.now() + 4500);
+  const sentinelTimeoutRef = useRef<number | null>(null);
 
   /**
    * Generates or reuses an Offscreen Master Tile for the K&E 8x8 Grid.
@@ -837,8 +842,41 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       prevDirtyRectsRef.current = null;
     }
 
-    // If crosshair is inactive or cursor is outside, exit cleanly
+    const newDirtyRects: DirtyRect[] = [];
+
+    // Sentinel Watchdog Banner (Layer 4) - Verifies Isotropic 1:1 Aspect Ratio
+    if (Date.now() < sentinelNoticeTimerRef.current) {
+      ctx.save();
+      const badgeText = "⚠️ K&E 8x8 ISOTROPIC RATIO LOCKED (0.125\" / 96 DPI)";
+      ctx.font = "bold 10px 'Courier New', Courier, monospace";
+      const bw = ctx.measureText(badgeText).width + 24;
+      const bh = 22;
+      const bx = Math.round((width - bw) / 2);
+      const topRulerOffset = showTopAxis ? 30 : 0;
+      const by = topRulerOffset + 8;
+
+      ctx.fillStyle = "#E65100";
+      ctx.strokeStyle = "#BF360C";
+      ctx.lineWidth = 1.2;
+      if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 4);
+      else ctx.rect(bx, by, bw, bh);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#FFFFFF";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(badgeText, width / 2, by + bh / 2);
+      ctx.restore();
+
+      newDirtyRects.push({ x: bx - 2, y: by - 2, w: bw + 4, h: bh + 4 });
+    }
+
+    // If crosshair is inactive or cursor is outside, cache any sentinel dirty rects and exit cleanly
     if (!isHovered || !showCrosshair) {
+      if (newDirtyRects.length > 0) {
+        prevDirtyRectsRef.current = newDirtyRects;
+      }
       return;
     }
 
@@ -848,6 +886,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     // Boundary check
     if (cx < -50 || cx > width + 50 || cy < -50 || cy > height + 50) {
+      if (newDirtyRects.length > 0) {
+        prevDirtyRectsRef.current = newDirtyRects;
+      }
       return;
     }
 
@@ -862,8 +903,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const mainRight = width - rightRulerWidth;
     const mainTop = topRulerHeight;
     const mainBottom = height - bottomRulerHeight;
-
-    const newDirtyRects: DirtyRect[] = [];
 
     ctx.save();
 
@@ -1038,7 +1077,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     };
   }, [renderCrosshair]);
 
-  // Window resize listener synchronizes all 4 canvas buffers
+  // Window resize listener synchronizes all 4 canvas buffers & enforces K&E Isotropic Ratio
   useEffect(() => {
     const handleResize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -1047,6 +1086,13 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const rCanvas = rulerCanvasRef.current;
       const uCanvas = crosshairCanvasRef.current;
       if (!gCanvas || !cCanvas || !rCanvas || !uCanvas) return;
+
+      // Ratio Sentinel & Backing Store Integrity Audit
+      const backingAudit = auditCanvasBackingStore(gCanvas, dpr);
+      const ratioAudit = verifyKeEAspectRatio(baseUnit, majorUnit);
+      if (backingAudit.isDistorted || !ratioAudit.isValid) {
+        sentinelNoticeTimerRef.current = Date.now() + 4500;
+      }
 
       const rect = gCanvas.getBoundingClientRect();
       const w = Math.round(rect.width * dpr);
@@ -1063,14 +1109,20 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       renderChart();
       renderRulers();
       renderCrosshair();
+
+      if (sentinelTimeoutRef.current) window.clearTimeout(sentinelTimeoutRef.current);
+      sentinelTimeoutRef.current = window.setTimeout(() => {
+        renderCrosshair();
+      }, 4600);
     };
 
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => {
       window.removeEventListener("resize", handleResize);
+      if (sentinelTimeoutRef.current) window.clearTimeout(sentinelTimeoutRef.current);
     };
-  }, [renderGrid, renderChart, renderRulers, renderCrosshair]);
+  }, [renderGrid, renderChart, renderRulers, renderCrosshair, baseUnit, majorUnit]);
 
   /**
    * KEYBOARD ARROW KEY NAVIGATION
