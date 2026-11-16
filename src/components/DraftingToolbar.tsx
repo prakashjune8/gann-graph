@@ -22,6 +22,14 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     setShowPatterns,
     showVolumeBars,
     setShowVolumeBars,
+    showTopAxis,
+    showBottomAxis,
+    showLeftAxis,
+    showRightAxis,
+    toggleTopAxis,
+    toggleBottomAxis,
+    toggleLeftAxis,
+    toggleRightAxis,
     loadSampleDataset,
     clearAllData,
     candles,
@@ -48,8 +56,8 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     <div
       style={{
         position: "absolute",
-        top: 14,
-        left: 14,
+        top: showTopAxis ? 40 : 14,
+        left: showLeftAxis ? 96 : 14,
         display: "flex",
         alignItems: "center",
         flexWrap: "wrap",
@@ -61,6 +69,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         boxShadow: "0 4px 16px rgba(0, 0, 0, 0.12)",
         fontFamily: "'Courier New', Courier, monospace",
         zIndex: 50,
+        transition: "top 0.2s ease, left 0.2s ease",
       }}
     >
       {/* Brand Header */}
@@ -151,6 +160,71 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           title="Toggle 1x1 45° True Diagonal Gann Ray"
         >
           {showGannRay ? "✓ 1x1 45° Ray" : "1x1 45° Ray"}
+        </button>
+      </div>
+
+      <div style={dividerStyle} />
+
+      {/* Four-Sided Axis Track Toggles (Step 1.5) */}
+      <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+        <button
+          onClick={toggleTopAxis}
+          style={{
+            ...buttonStyle,
+            padding: "4px 6px",
+            backgroundColor: showTopAxis ? "#E8F5E9" : "transparent",
+            borderColor: showTopAxis ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+            color: showTopAxis ? "#1B5E20" : "#777",
+            fontWeight: showTopAxis ? "bold" : "normal",
+          }}
+          title="Toggle Top Time Axis Track"
+        >
+          {showTopAxis ? "🔲 Top" : "◻ Top"}
+        </button>
+
+        <button
+          onClick={toggleBottomAxis}
+          style={{
+            ...buttonStyle,
+            padding: "4px 6px",
+            backgroundColor: showBottomAxis ? "#E8F5E9" : "transparent",
+            borderColor: showBottomAxis ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+            color: showBottomAxis ? "#1B5E20" : "#777",
+            fontWeight: showBottomAxis ? "bold" : "normal",
+          }}
+          title="Toggle Bottom Time Axis Track"
+        >
+          {showBottomAxis ? "🔲 Btm" : "◻ Btm"}
+        </button>
+
+        <button
+          onClick={toggleLeftAxis}
+          style={{
+            ...buttonStyle,
+            padding: "4px 6px",
+            backgroundColor: showLeftAxis ? "#E8F5E9" : "transparent",
+            borderColor: showLeftAxis ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+            color: showLeftAxis ? "#1B5E20" : "#777",
+            fontWeight: showLeftAxis ? "bold" : "normal",
+          }}
+          title="Toggle Left Price Axis Track"
+        >
+          {showLeftAxis ? "🔲 Left" : "◻ Left"}
+        </button>
+
+        <button
+          onClick={toggleRightAxis}
+          style={{
+            ...buttonStyle,
+            padding: "4px 6px",
+            backgroundColor: showRightAxis ? "#E8F5E9" : "transparent",
+            borderColor: showRightAxis ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+            color: showRightAxis ? "#1B5E20" : "#777",
+            fontWeight: showRightAxis ? "bold" : "normal",
+          }}
+          title="Toggle Right Price Axis Track"
+        >
+          {showRightAxis ? "🔲 Right" : "◻ Right"}
         </button>
       </div>
 

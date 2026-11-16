@@ -41,8 +41,8 @@ HTML_CONTENT = """<!DOCTYPE html>
     /* Toolbar */
     .toolbar {
       position: absolute;
-      top: 14px;
-      left: 14px;
+      top: 40px;
+      left: 96px;
       display: flex;
       align-items: center;
       flex-wrap: wrap;
@@ -53,6 +53,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       padding: 6px 12px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
       z-index: 100;
+      transition: top 0.2s ease, left 0.2s ease;
     }
     .toolbar-title {
       font-weight: bold;
@@ -165,6 +166,14 @@ HTML_CONTENT = """<!DOCTYPE html>
 
     <div class="divider"></div>
 
+    <!-- Four-Sided Axis Track Toggles (Step 1.5) -->
+    <button class="btn active" id="btnAxisTop" onclick="toggleAxis('top')" title="Toggle Top Time Axis Track">🔲 Top</button>
+    <button class="btn active" id="btnAxisBtm" onclick="toggleAxis('btm')" title="Toggle Bottom Time Axis Track">🔲 Btm</button>
+    <button class="btn active" id="btnAxisLeft" onclick="toggleAxis('left')" title="Toggle Left Price Axis Track">🔲 Left</button>
+    <button class="btn active" id="btnAxisRight" onclick="toggleAxis('right')" title="Toggle Right Price Axis Track">🔲 Right</button>
+
+    <div class="divider"></div>
+
     <!-- Zoom & Origin -->
     <button class="btn" onclick="zoomIn()">+ Zoom</button>
     <button class="btn" onclick="zoomOut()">- Zoom</button>
@@ -229,6 +238,10 @@ HTML_CONTENT = """<!DOCTYPE html>
       showPatterns: true,
       showVolumeBars: true,
       showGannRay: true,
+      showTopAxis: true,
+      showBottomAxis: true,
+      showLeftAxis: true,
+      showRightAxis: true,
       basePrice: 21500,
       pricePerUnit: 25.0,
       cursor: { x: 0, y: 0, worldX: 0, worldY: 0, col: 0, row: 0 },
@@ -485,18 +498,25 @@ HTML_CONTENT = """<!DOCTYPE html>
       }
 
       // 5. Volume Histogram
-      const rightRulerWidth = 92;
-      const bottomRulerHeight = 32;
+      const leftRulerWidth = state.showLeftAxis ? 84 : 0;
+      const rightRulerWidth = state.showRightAxis ? 88 : 0;
+      const topRulerHeight = state.showTopAxis ? 30 : 0;
+      const bottomRulerHeight = state.showBottomAxis ? 30 : 0;
+
+      const mainLeft = leftRulerWidth;
+      const mainRight = width - rightRulerWidth;
+      const mainTop = topRulerHeight;
+      const mainBottom = height - bottomRulerHeight;
 
       if (state.showVolumeBars && state.candles.length > 0) {
         ctx.save();
         const maxVol = Math.max(...state.candles.map(c => c.volume), 1);
         const vHeight = 60;
-        const vBaseY = height - bottomRulerHeight - 2;
+        const vBaseY = mainBottom - 2;
 
         state.candles.forEach(c => {
           const colX = worldToScreen(c.gridCol * state.baseUnit, 0).x;
-          if (colX > width - rightRulerWidth) return;
+          if (colX < mainLeft || colX > mainRight) return;
           const barW = Math.max(3, scaledBase * 0.7);
           const barH = (c.volume / maxVol) * vHeight;
           const isBull = c.close >= c.open;
@@ -508,7 +528,7 @@ HTML_CONTENT = """<!DOCTYPE html>
         });
         ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
         ctx.font = "9px 'Courier New', monospace";
-        ctx.fillText("VOLUME HISTOGRAM", 20, vBaseY - vHeight - 4);
+        ctx.fillText("VOLUME HISTOGRAM", mainLeft + 20, vBaseY - vHeight - 4);
         ctx.restore();
       }
 
@@ -657,102 +677,192 @@ HTML_CONTENT = """<!DOCTYPE html>
       }
 
       // -------------------------------------------------------------
-      // 9. FIXED AXIS RULER TRACKS (PRICE Y-AXIS RIGHT & TIME X-AXIS BOTTOM)
+      // 9. FOUR-SIDED FIXED AXIS RULER TRACKS & CORNER JUNCTION BOXES
       // Rendered on top so panning grid slides underneath seamlessly.
       // -------------------------------------------------------------
       ctx.save();
-
-      // A. Paint Solid Vintage Paper Background for Axis Tracks
       ctx.fillStyle = THEME.paperBackground; // Solid #F7F6F0
-
-      // Right Price Ruler Track
-      ctx.fillRect(width - rightRulerWidth, 0, rightRulerWidth, height - bottomRulerHeight);
-
-      // Bottom Time Ruler Track
-      ctx.fillRect(0, height - bottomRulerHeight, width - rightRulerWidth, bottomRulerHeight);
-
-      // Bottom-Right Junction Box
-      ctx.fillRect(width - rightRulerWidth, height - bottomRulerHeight, rightRulerWidth, bottomRulerHeight);
-
-      // B. Draw Subtle Separator Borders (rgba(74, 120, 102, 0.50))
       ctx.strokeStyle = "rgba(74, 120, 102, 0.50)";
       ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      // Vertical border for Right Price Track
-      ctx.moveTo(Math.round(width - rightRulerWidth) + 0.5, 0);
-      ctx.lineTo(Math.round(width - rightRulerWidth) + 0.5, height);
 
-      // Horizontal border for Bottom Time Track
-      ctx.moveTo(0, Math.round(height - bottomRulerHeight) + 0.5);
-      ctx.lineTo(width, Math.round(height - bottomRulerHeight) + 0.5);
-      ctx.stroke();
-
-      // C. Y-AXIS (PRICE) TICKS & LABELS ALONG RIGHT EDGE
-      for (let row = startRow; row <= endRow; row++) {
-        const sy = Math.round(state.pan.y - row * scaledBase) + 0.5;
-        if (sy < 0 || sy > height - bottomRulerHeight) continue;
-
-        const isMajor = row % state.subdivisions === 0;
-        const isIntermediate = row % 2 === 0;
-        const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
-
-        // Draw Tick extending from border into the right track
-        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
-        ctx.lineWidth = isMajor ? 1.2 : 0.8;
+      // 1. LEFT PRICE TRACK (Y-AXIS)
+      if (state.showLeftAxis) {
+        ctx.fillRect(0, mainTop, leftRulerWidth, mainBottom - mainTop);
         ctx.beginPath();
-        ctx.moveTo(width - rightRulerWidth, sy);
-        ctx.lineTo(width - rightRulerWidth + tickLength, sy);
+        ctx.moveTo(Math.round(leftRulerWidth) + 0.5, 0);
+        ctx.lineTo(Math.round(leftRulerWidth) + 0.5, height);
         ctx.stroke();
 
-        // Render Price label on Major Unit (96px * zoom / 8 minor units)
-        if (isMajor) {
-          const priceVal = state.basePrice + row * state.pricePerUnit;
-          const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
-          const inchStr = `${row / state.subdivisions}"`;
+        for (let row = startRow; row <= endRow; row++) {
+          const sy = Math.round(state.pan.y - row * scaledBase) + 0.5;
+          if (sy < mainTop || sy > mainBottom) continue;
 
-          ctx.fillStyle = "#2C2C2C";
-          ctx.font = "bold 10px 'Courier New', Courier, monospace";
-          ctx.fillText(priceStr, width - rightRulerWidth + 12, sy + 3.5);
+          const isMajor = row % state.subdivisions === 0;
+          const isIntermediate = row % 2 === 0;
+          const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-          // Small inch annotation
-          ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
-          ctx.font = "8px 'Courier New', Courier, monospace";
-          ctx.fillText(inchStr, width - 24, sy + 3.5);
+          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.lineWidth = isMajor ? 1.2 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(leftRulerWidth, sy);
+          ctx.lineTo(leftRulerWidth - tickLength, sy);
+          ctx.stroke();
+
+          if (isMajor) {
+            const priceVal = state.basePrice + row * state.pricePerUnit;
+            const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
+            const inchStr = `${row / state.subdivisions}"`;
+
+            ctx.fillStyle = "#2C2C2C";
+            ctx.font = "bold 10px 'Courier New', Courier, monospace";
+            ctx.fillText(priceStr, 8, sy + 3.5);
+
+            ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
+            ctx.font = "8px 'Courier New', Courier, monospace";
+            ctx.fillText(inchStr, leftRulerWidth - 22, sy + 3.5);
+          }
         }
       }
 
-      // D. X-AXIS (TIME) TICKS & LABELS ALONG BOTTOM EDGE
-      for (let col = startCol; col <= endCol; col++) {
-        const sx = Math.round(state.pan.x + col * scaledBase) + 0.5;
-        if (sx < 0 || sx > width - rightRulerWidth) continue;
-
-        const isMajor = col % state.subdivisions === 0;
-        const isIntermediate = col % 2 === 0;
-        const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
-
-        // Draw Tick extending from border downwards into bottom track
-        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
-        ctx.lineWidth = isMajor ? 1.2 : 0.8;
+      // 2. RIGHT PRICE TRACK (Y-AXIS)
+      if (state.showRightAxis) {
+        ctx.fillRect(mainRight, mainTop, rightRulerWidth, mainBottom - mainTop);
         ctx.beginPath();
-        ctx.moveTo(sx, height - bottomRulerHeight);
-        ctx.lineTo(sx, height - bottomRulerHeight + tickLength);
+        ctx.moveTo(Math.round(mainRight) + 0.5, 0);
+        ctx.lineTo(Math.round(mainRight) + 0.5, height);
         ctx.stroke();
 
-        // Render Time/Inch label on Major Unit (96px * zoom / 8 minor units)
-        if (isMajor) {
-          const inchIdx = col / state.subdivisions;
-          const colStr = `${inchIdx}" [T+${col}]`;
+        for (let row = startRow; row <= endRow; row++) {
+          const sy = Math.round(state.pan.y - row * scaledBase) + 0.5;
+          if (sy < mainTop || sy > mainBottom) continue;
 
-          ctx.fillStyle = "#2C2C2C";
-          ctx.font = "bold 9px 'Courier New', Courier, monospace";
-          ctx.fillText(colStr, sx - 22, height - 10);
+          const isMajor = row % state.subdivisions === 0;
+          const isIntermediate = row % 2 === 0;
+          const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
+
+          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.lineWidth = isMajor ? 1.2 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(mainRight, sy);
+          ctx.lineTo(mainRight + tickLength, sy);
+          ctx.stroke();
+
+          if (isMajor) {
+            const priceVal = state.basePrice + row * state.pricePerUnit;
+            const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
+            const inchStr = `${row / state.subdivisions}"`;
+
+            ctx.fillStyle = "#2C2C2C";
+            ctx.font = "bold 10px 'Courier New', Courier, monospace";
+            ctx.fillText(priceStr, mainRight + 12, sy + 3.5);
+
+            ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
+            ctx.font = "8px 'Courier New', Courier, monospace";
+            ctx.fillText(inchStr, width - 24, sy + 3.5);
+          }
         }
       }
 
-      // E. Bottom-Right Junction Box Brand Tag
-      ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
-      ctx.font = "bold 9px 'Courier New', Courier, monospace";
-      ctx.fillText("K&E 8x8", width - rightRulerWidth + 16, height - 12);
+      // 3. TOP TIME TRACK (X-AXIS)
+      if (state.showTopAxis) {
+        ctx.fillRect(mainLeft, 0, mainRight - mainLeft, topRulerHeight);
+        ctx.beginPath();
+        ctx.moveTo(0, Math.round(topRulerHeight) + 0.5);
+        ctx.lineTo(width, Math.round(topRulerHeight) + 0.5);
+        ctx.stroke();
+
+        for (let col = startCol; col <= endCol; col++) {
+          const sx = Math.round(state.pan.x + col * scaledBase) + 0.5;
+          if (sx < mainLeft || sx > mainRight) continue;
+
+          const isMajor = col % state.subdivisions === 0;
+          const isIntermediate = col % 2 === 0;
+          const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
+
+          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.lineWidth = isMajor ? 1.2 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(sx, topRulerHeight);
+          ctx.lineTo(sx, topRulerHeight - tickLength);
+          ctx.stroke();
+
+          if (isMajor) {
+            const inchIdx = col / state.subdivisions;
+            const colStr = `${inchIdx}" [T+${col}]`;
+
+            ctx.fillStyle = "#2C2C2C";
+            ctx.font = "bold 9px 'Courier New', Courier, monospace";
+            ctx.fillText(colStr, sx - 22, 18);
+          }
+        }
+      }
+
+      // 4. BOTTOM TIME TRACK (X-AXIS)
+      if (state.showBottomAxis) {
+        ctx.fillRect(mainLeft, mainBottom, mainRight - mainLeft, bottomRulerHeight);
+        ctx.beginPath();
+        ctx.moveTo(0, Math.round(mainBottom) + 0.5);
+        ctx.lineTo(width, Math.round(mainBottom) + 0.5);
+        ctx.stroke();
+
+        for (let col = startCol; col <= endCol; col++) {
+          const sx = Math.round(state.pan.x + col * scaledBase) + 0.5;
+          if (sx < mainLeft || sx > mainRight) continue;
+
+          const isMajor = col % state.subdivisions === 0;
+          const isIntermediate = col % 2 === 0;
+          const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
+
+          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.lineWidth = isMajor ? 1.2 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(sx, mainBottom);
+          ctx.lineTo(sx, mainBottom + tickLength);
+          ctx.stroke();
+
+          if (isMajor) {
+            const inchIdx = col / state.subdivisions;
+            const colStr = `${inchIdx}" [T+${col}]`;
+
+            ctx.fillStyle = "#2C2C2C";
+            ctx.font = "bold 9px 'Courier New', Courier, monospace";
+            ctx.fillText(colStr, sx - 22, height - 10);
+          }
+        }
+      }
+
+      // 5. CORNER JUNCTION BOXES (Rendered if both adjacent intersecting axes are visible)
+      // Top-Left Junction
+      if (state.showTopAxis && state.showLeftAxis) {
+        ctx.fillRect(0, 0, leftRulerWidth, topRulerHeight);
+        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.font = "bold 9px 'Courier New', Courier, monospace";
+        ctx.fillText("K&E 8x8", 14, 19);
+      }
+
+      // Top-Right Junction
+      if (state.showTopAxis && state.showRightAxis) {
+        ctx.fillRect(mainRight, 0, rightRulerWidth, topRulerHeight);
+        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.font = "bold 9px 'Courier New', Courier, monospace";
+        ctx.fillText("K&E 8x8", mainRight + 16, 19);
+      }
+
+      // Bottom-Left Junction
+      if (state.showBottomAxis && state.showLeftAxis) {
+        ctx.fillRect(0, mainBottom, leftRulerWidth, bottomRulerHeight);
+        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.font = "bold 9px 'Courier New', Courier, monospace";
+        ctx.fillText("K&E 8x8", 14, height - 11);
+      }
+
+      // Bottom-Right Junction
+      if (state.showBottomAxis && state.showRightAxis) {
+        ctx.fillRect(mainRight, mainBottom, rightRulerWidth, bottomRulerHeight);
+        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.font = "bold 9px 'Courier New', Courier, monospace";
+        ctx.fillText("K&E 8x8", mainRight + 16, height - 11);
+      }
 
       ctx.restore();
     }
@@ -883,6 +993,42 @@ HTML_CONTENT = """<!DOCTYPE html>
       const btn = document.getElementById("btnGannRay");
       btn.className = state.showGannRay ? "btn active" : "btn";
       btn.textContent = state.showGannRay ? "✓ 1x1 45° Ray" : "1x1 45° Ray";
+      requestRender();
+    }
+
+    function toggleAxis(side) {
+      if (side === 'top') state.showTopAxis = !state.showTopAxis;
+      if (side === 'btm') state.showBottomAxis = !state.showBottomAxis;
+      if (side === 'left') state.showLeftAxis = !state.showLeftAxis;
+      if (side === 'right') state.showRightAxis = !state.showRightAxis;
+
+      const btnTop = document.getElementById("btnAxisTop");
+      if (btnTop) {
+        btnTop.className = state.showTopAxis ? "btn active" : "btn";
+        btnTop.textContent = state.showTopAxis ? "🔲 Top" : "◻ Top";
+      }
+      const btnBtm = document.getElementById("btnAxisBtm");
+      if (btnBtm) {
+        btnBtm.className = state.showBottomAxis ? "btn active" : "btn";
+        btnBtm.textContent = state.showBottomAxis ? "🔲 Btm" : "◻ Btm";
+      }
+      const btnLeft = document.getElementById("btnAxisLeft");
+      if (btnLeft) {
+        btnLeft.className = state.showLeftAxis ? "btn active" : "btn";
+        btnLeft.textContent = state.showLeftAxis ? "🔲 Left" : "◻ Left";
+      }
+      const btnRight = document.getElementById("btnAxisRight");
+      if (btnRight) {
+        btnRight.className = state.showRightAxis ? "btn active" : "btn";
+        btnRight.textContent = state.showRightAxis ? "🔲 Right" : "◻ Right";
+      }
+
+      const tb = document.querySelector(".toolbar");
+      if (tb) {
+        tb.style.top = state.showTopAxis ? "40px" : "14px";
+        tb.style.left = state.showLeftAxis ? "96px" : "14px";
+      }
+
       requestRender();
     }
 

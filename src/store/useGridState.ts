@@ -96,6 +96,12 @@ export interface GridState {
   showPatterns: boolean;
   showVolumeBars: boolean;
 
+  // Four-Sided Axis Visibility Toggles (Step 1.5)
+  showTopAxis: boolean;
+  showBottomAxis: boolean;
+  showLeftAxis: boolean;
+  showRightAxis: boolean;
+
   // Active Cursor Coordinate Tracking
   cursorScreen: Point2D;
   cursorWorld: Point2D;
@@ -122,6 +128,10 @@ export interface GridState {
   setChartMode: (mode: ChartDisplayMode) => void;
   setShowPatterns: (show: boolean) => void;
   setShowVolumeBars: (show: boolean) => void;
+  toggleTopAxis: () => void;
+  toggleBottomAxis: () => void;
+  toggleLeftAxis: () => void;
+  toggleRightAxis: () => void;
 
   // Data Actions
   setCandles: (candles: CandleData[]) => void;
@@ -165,6 +175,12 @@ export const useGridState = create<GridState>((set, get) => ({
   chartMode: "HYBRID_CANDLE_SWING",
   showPatterns: true,
   showVolumeBars: true,
+
+  // Four-Sided Axis Defaults
+  showTopAxis: true,
+  showBottomAxis: true,
+  showLeftAxis: true,
+  showRightAxis: true,
 
   cursorScreen: { x: 0, y: 0 },
   cursorWorld: { x: 0, y: 0 },
@@ -236,6 +252,10 @@ export const useGridState = create<GridState>((set, get) => ({
   setChartMode: (mode) => set({ chartMode: mode }),
   setShowPatterns: (show) => set({ showPatterns: show }),
   setShowVolumeBars: (show) => set({ showVolumeBars: show }),
+  toggleTopAxis: () => set((s) => ({ showTopAxis: !s.showTopAxis })),
+  toggleBottomAxis: () => set((s) => ({ showBottomAxis: !s.showBottomAxis })),
+  toggleLeftAxis: () => set((s) => ({ showLeftAxis: !s.showLeftAxis })),
+  toggleRightAxis: () => set((s) => ({ showRightAxis: !s.showRightAxis })),
 
   setCandles: (candles) => set({ candles: identifyCandlestickPatterns(candles) }),
   addSwingPoint: (point) => set((s) => ({ swingPoints: [...s.swingPoints, point] })),
