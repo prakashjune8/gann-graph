@@ -485,14 +485,18 @@ HTML_CONTENT = """<!DOCTYPE html>
       }
 
       // 5. Volume Histogram
+      const rightRulerWidth = 92;
+      const bottomRulerHeight = 32;
+
       if (state.showVolumeBars && state.candles.length > 0) {
         ctx.save();
         const maxVol = Math.max(...state.candles.map(c => c.volume), 1);
-        const vHeight = 65;
-        const vBaseY = height - 18;
+        const vHeight = 60;
+        const vBaseY = height - bottomRulerHeight - 2;
 
         state.candles.forEach(c => {
           const colX = worldToScreen(c.gridCol * state.baseUnit, 0).x;
+          if (colX > width - rightRulerWidth) return;
           const barW = Math.max(3, scaledBase * 0.7);
           const barH = (c.volume / maxVol) * vHeight;
           const isBull = c.close >= c.open;
@@ -652,28 +656,104 @@ HTML_CONTENT = """<!DOCTYPE html>
         ctx.restore();
       }
 
-      // 9. Price Rulers
+      // -------------------------------------------------------------
+      // 9. FIXED AXIS RULER TRACKS (PRICE Y-AXIS RIGHT & TIME X-AXIS BOTTOM)
+      // Rendered on top so panning grid slides underneath seamlessly.
+      // -------------------------------------------------------------
       ctx.save();
-      ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
-      ctx.font = "bold 9px 'Courier New', monospace";
+
+      // A. Paint Solid Vintage Paper Background for Axis Tracks
+      ctx.fillStyle = THEME.paperBackground; // Solid #F7F6F0
+
+      // Right Price Ruler Track
+      ctx.fillRect(width - rightRulerWidth, 0, rightRulerWidth, height - bottomRulerHeight);
+
+      // Bottom Time Ruler Track
+      ctx.fillRect(0, height - bottomRulerHeight, width - rightRulerWidth, bottomRulerHeight);
+
+      // Bottom-Right Junction Box
+      ctx.fillRect(width - rightRulerWidth, height - bottomRulerHeight, rightRulerWidth, bottomRulerHeight);
+
+      // B. Draw Subtle Separator Borders (rgba(74, 120, 102, 0.50))
+      ctx.strokeStyle = "rgba(74, 120, 102, 0.50)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      // Vertical border for Right Price Track
+      ctx.moveTo(Math.round(width - rightRulerWidth) + 0.5, 0);
+      ctx.lineTo(Math.round(width - rightRulerWidth) + 0.5, height);
+
+      // Horizontal border for Bottom Time Track
+      ctx.moveTo(0, Math.round(height - bottomRulerHeight) + 0.5);
+      ctx.lineTo(width, Math.round(height - bottomRulerHeight) + 0.5);
+      ctx.stroke();
+
+      // C. Y-AXIS (PRICE) TICKS & LABELS ALONG RIGHT EDGE
       for (let row = startRow; row <= endRow; row++) {
-        if (row % state.subdivisions === 0) {
-          const sy = Math.round(state.pan.y - row * scaledBase);
-          const pVal = state.basePrice + row * state.pricePerUnit;
-          if (sy >= 20 && sy <= height - 20) {
-            ctx.fillText(`₹${pVal.toFixed(0)} (${row / state.subdivisions}")`, 8, sy - 3);
-          }
+        const sy = Math.round(state.pan.y - row * scaledBase) + 0.5;
+        if (sy < 0 || sy > height - bottomRulerHeight) continue;
+
+        const isMajor = row % state.subdivisions === 0;
+        const isIntermediate = row % 2 === 0;
+        const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
+
+        // Draw Tick extending from border into the right track
+        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+        ctx.lineWidth = isMajor ? 1.2 : 0.8;
+        ctx.beginPath();
+        ctx.moveTo(width - rightRulerWidth, sy);
+        ctx.lineTo(width - rightRulerWidth + tickLength, sy);
+        ctx.stroke();
+
+        // Render Price label on Major Unit (96px * zoom / 8 minor units)
+        if (isMajor) {
+          const priceVal = state.basePrice + row * state.pricePerUnit;
+          const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
+          const inchStr = `${row / state.subdivisions}"`;
+
+          ctx.fillStyle = "#2C2C2C";
+          ctx.font = "bold 10px 'Courier New', Courier, monospace";
+          ctx.fillText(priceStr, width - rightRulerWidth + 12, sy + 3.5);
+
+          // Small inch annotation
+          ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
+          ctx.font = "8px 'Courier New', Courier, monospace";
+          ctx.fillText(inchStr, width - 24, sy + 3.5);
         }
       }
+
+      // D. X-AXIS (TIME) TICKS & LABELS ALONG BOTTOM EDGE
       for (let col = startCol; col <= endCol; col++) {
-        if (col % state.subdivisions === 0) {
-          const sx = Math.round(state.pan.x + col * scaledBase);
+        const sx = Math.round(state.pan.x + col * scaledBase) + 0.5;
+        if (sx < 0 || sx > width - rightRulerWidth) continue;
+
+        const isMajor = col % state.subdivisions === 0;
+        const isIntermediate = col % 2 === 0;
+        const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
+
+        // Draw Tick extending from border downwards into bottom track
+        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+        ctx.lineWidth = isMajor ? 1.2 : 0.8;
+        ctx.beginPath();
+        ctx.moveTo(sx, height - bottomRulerHeight);
+        ctx.lineTo(sx, height - bottomRulerHeight + tickLength);
+        ctx.stroke();
+
+        // Render Time/Inch label on Major Unit (96px * zoom / 8 minor units)
+        if (isMajor) {
           const inchIdx = col / state.subdivisions;
-          if (sx >= 20 && sx <= width - 20) {
-            ctx.fillText(`${inchIdx}"`, sx + 3, height - 8);
-          }
+          const colStr = `${inchIdx}" [T+${col}]`;
+
+          ctx.fillStyle = "#2C2C2C";
+          ctx.font = "bold 9px 'Courier New', Courier, monospace";
+          ctx.fillText(colStr, sx - 22, height - 10);
         }
       }
+
+      // E. Bottom-Right Junction Box Brand Tag
+      ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+      ctx.font = "bold 9px 'Courier New', Courier, monospace";
+      ctx.fillText("K&E 8x8", width - rightRulerWidth + 16, height - 12);
+
       ctx.restore();
     }
 
