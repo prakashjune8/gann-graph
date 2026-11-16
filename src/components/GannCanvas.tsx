@@ -27,7 +27,10 @@ interface GannCanvasProps {
 export const GannCanvas: React.FC<GannCanvasProps> = ({
   showGannRay45 = true,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Multi-Canvas 3-Tier Layer Refs
+  const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);   // Layer 1 (z-index: 10)
+  const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);  // Layer 2 (z-index: 20)
+  const uiCanvasRef = useRef<HTMLCanvasElement | null>(null);     // Layer 3 (z-index: 30)
 
   // Subscribe to Zustand state
   const {
@@ -58,21 +61,21 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     screenToWorld,
     worldToScreen,
     priceToWorldY,
-    worldYToPrice,
   } = useGridState();
 
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
-  const animationFrameRef = useRef<number | null>(null);
+  const animFrameGridRef = useRef<number | null>(null);
+  const animFrameChartRef = useRef<number | null>(null);
+  const animFrameUIRef = useRef<number | null>(null);
 
   /**
-   * Primary Render Pipeline:
-   * Strictly 1:1 Aspect Ratio Geometric Canvas
+   * LAYER 1 (z-index: 10): Background & K&E 8x8 Grid
+   * Strictly redraws only on pan/zoom.
    */
-  const render = useCallback(() => {
-    const canvas = canvasRef.current;
+  const renderGrid = useCallback(() => {
+    const canvas = gridCanvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
@@ -80,14 +83,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const width = canvas.width / dpr;
     const height = canvas.height / dpr;
 
-    // Reset transform & clear to vintage off-white paper
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = DRAFTING_THEME.paperBackground;
     ctx.fillRect(0, 0, width, height);
 
     const scaledBase = baseUnit * zoom;
-
-    // Calculate visible Cartesian bounds in world units
     const topLeftWorld = screenToWorld(0, 0);
     const bottomRightWorld = screenToWorld(width, height);
 
@@ -101,13 +101,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const startRow = Math.floor(minWorldY / baseUnit) - 1;
     const endRow = Math.ceil(maxWorldY / baseUnit) + 1;
 
-    // -------------------------------------------------------------
-    // 1. MINOR GRID LINES (1/8th inch, baseUnit = 12px)
-    // -------------------------------------------------------------
+    // 1. Minor Grid Lines (1/8th inch, baseUnit = 12px)
     ctx.lineWidth = 1;
     ctx.strokeStyle = DRAFTING_THEME.minorGridLine;
     ctx.beginPath();
-
     for (let col = startCol; col <= endCol; col++) {
       if (col % subdivisions !== 0) {
         const screenX = Math.round(pan.x + col * scaledBase) + 0.5;
@@ -115,7 +112,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.lineTo(screenX, height);
       }
     }
-
     for (let row = startRow; row <= endRow; row++) {
       if (row % subdivisions !== 0) {
         const screenY = Math.round(pan.y - row * scaledBase) + 0.5;
@@ -125,13 +121,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
     ctx.stroke();
 
-    // -------------------------------------------------------------
-    // 2. MAJOR GRID LINES (1 inch, majorUnit = 96px, 8x8 blocks)
-    // -------------------------------------------------------------
+    // 2. Major Grid Lines (1 inch, majorUnit = 96px, 8x8 blocks)
     ctx.lineWidth = 1.25;
     ctx.strokeStyle = DRAFTING_THEME.majorGridLine;
     ctx.beginPath();
-
     for (let col = startCol; col <= endCol; col++) {
       if (col % subdivisions === 0 && col !== 0) {
         const screenX = Math.round(pan.x + col * scaledBase) + 0.5;
@@ -139,7 +132,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.lineTo(screenX, height);
       }
     }
-
     for (let row = startRow; row <= endRow; row++) {
       if (row % subdivisions === 0 && row !== 0) {
         const screenY = Math.round(pan.y - row * scaledBase) + 0.5;
@@ -149,19 +141,15 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
     ctx.stroke();
 
-    // -------------------------------------------------------------
-    // 3. CARTESIAN ZERO-AXES (X = 0 Time, Y = 0 Price)
-    // -------------------------------------------------------------
+    // 3. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price)
     ctx.lineWidth = 2.0;
     ctx.strokeStyle = DRAFTING_THEME.axisLine;
     ctx.beginPath();
-
     const axisY = Math.round(pan.y) + 0.5;
     if (axisY >= 0 && axisY <= height) {
       ctx.moveTo(0, axisY);
       ctx.lineTo(width, axisY);
     }
-
     const axisX = Math.round(pan.x) + 0.5;
     if (axisX >= 0 && axisX <= width) {
       ctx.moveTo(axisX, 0);
@@ -178,12 +166,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       ctx.fillStyle = "rgba(42, 75, 62, 0.75)";
       ctx.font = "bold 10px 'Courier New', monospace";
-      ctx.fillText(`0,0 (BASE ₹${basePrice})`, axisX + 7, axisY - 6);
+      ctx.fillText(`0,0 (BASE \u20B9${basePrice})`, axisX + 7, axisY - 6);
     }
 
-    // -------------------------------------------------------------
-    // 4. GANN 1x1 (45-DEGREE) TRUE DIAGONAL RAY
-    // -------------------------------------------------------------
+    // 4. Gann 1x1 (45-Degree) True Diagonal Ray
     if (showGannRay45) {
       ctx.save();
       ctx.lineWidth = 1.5;
@@ -209,14 +195,40 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ) {
         ctx.fillStyle = "rgba(180, 80, 50, 0.90)";
         ctx.font = "bold 11px 'Courier New', monospace";
-        ctx.fillText("1x1 (45° TRUE HARMONIC)", labelScreen.x + 8, labelScreen.y - 8);
+        ctx.fillText("1x1 (45\u00B0 TRUE HARMONIC)", labelScreen.x + 8, labelScreen.y - 8);
       }
       ctx.restore();
     }
+  }, [
+    pan,
+    zoom,
+    baseUnit,
+    majorUnit,
+    subdivisions,
+    basePrice,
+    showGannRay45,
+    screenToWorld,
+    worldToScreen,
+  ]);
 
-    // -------------------------------------------------------------
-    // 5. VOLUME HISTOGRAM BARS (DRAFTING BASELINE)
-    // -------------------------------------------------------------
+  /**
+   * LAYER 2 (z-index: 20): Candlesticks, Volume Histogram, and Swing Steps
+   * Only redraws on pan/zoom or dataset updates.
+   */
+  const renderChart = useCallback(() => {
+    const canvas = chartCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.width / dpr;
+    const height = canvas.height / dpr;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const scaledBase = baseUnit * zoom;
     const leftRulerWidth = showLeftAxis ? 84 : 0;
     const rightRulerWidth = showRightAxis ? 88 : 0;
     const topRulerHeight = showTopAxis ? 30 : 0;
@@ -224,9 +236,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     const mainLeft = leftRulerWidth;
     const mainRight = width - rightRulerWidth;
-    const mainTop = topRulerHeight;
     const mainBottom = height - bottomRulerHeight;
 
+    // 5. Volume Histogram Bars
     if (showVolumeBars && candles.length > 0) {
       ctx.save();
       const maxVol = Math.max(...candles.map((c) => c.volume), 1);
@@ -265,9 +277,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // -------------------------------------------------------------
-    // 6. JAPANESE CANDLESTICK RENDERING
-    // -------------------------------------------------------------
+    // 6. Japanese Candlesticks
     if (
       (chartMode === "CANDLESTICK" || chartMode === "HYBRID_CANDLE_SWING") &&
       candles.length > 0
@@ -278,8 +288,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       candles.forEach((c) => {
         const colWorldX = c.gridCol * baseUnit;
         const screenColX = worldToScreen(colWorldX, 0).x;
-
-        // Skip off-screen candles
         if (screenColX < -60 || screenColX > width + 60) return;
 
         const openWorldY = priceToWorldY(c.open);
@@ -296,7 +304,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const topBodyY = Math.min(openScreenY, closeScreenY);
         const bodyHeight = Math.max(2, Math.abs(closeScreenY - openScreenY));
 
-        // Draw Candle Wick (Upper & Lower)
+        // Candle Wick
         ctx.strokeStyle = DRAFTING_THEME.wickColor;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
@@ -304,9 +312,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.lineTo(Math.round(screenColX) + 0.5, Math.round(lowScreenY));
         ctx.stroke();
 
-        // Draw Real Body Rectangle
+        // Real Body
         const bodyLeft = Math.round(screenColX - candleBodyWidth / 2);
-
         if (isBull) {
           ctx.fillStyle = DRAFTING_THEME.bullishCandleFill;
           ctx.strokeStyle = DRAFTING_THEME.bullishCandle;
@@ -321,9 +328,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           ctx.strokeRect(bodyLeft, topBodyY, candleBodyWidth, bodyHeight);
         }
 
-        // ---------------------------------------------------------
-        // CANDLESTICK PATTERN BADGES & ANNOTATIONS
-        // ---------------------------------------------------------
+        // Pattern Badges
         if (showPatterns && c.pattern) {
           const isBearishPattern = c.patternType === "BEARISH";
           const tagY = isBearishPattern ? highScreenY - 14 : lowScreenY + 18;
@@ -335,7 +340,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           const badgeHeight = 15;
           const badgeX = screenColX - badgeWidth / 2;
 
-          // Pill Background
           ctx.fillStyle =
             c.patternType === "BULLISH"
               ? "rgba(46, 125, 50, 0.90)"
@@ -344,30 +348,26 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
               : "rgba(55, 71, 79, 0.85)";
 
           ctx.beginPath();
-          ctx.roundRect(badgeX, tagY - 11, badgeWidth, badgeHeight, 3);
+          if (ctx.roundRect) ctx.roundRect(badgeX, tagY - 11, badgeWidth, badgeHeight, 3);
+          else ctx.rect(badgeX, tagY - 11, badgeWidth, badgeHeight);
           ctx.fill();
 
-          // Pill Text
           ctx.fillStyle = "#FFFFFF";
           ctx.fillText(c.pattern, badgeX + 5, tagY);
 
-          // Indicator pointer line connecting badge to extreme wick
           ctx.strokeStyle = ctx.fillStyle;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(screenColX, isBearishPattern ? highScreenY : lowScreenY);
           ctx.lineTo(screenColX, isBearishPattern ? tagY + 4 : tagY - 11);
           ctx.stroke();
-
           ctx.restore();
         }
       });
       ctx.restore();
     }
 
-    // -------------------------------------------------------------
-    // 7. WESTERN OHLC BAR GRAPH RENDERING
-    // -------------------------------------------------------------
+    // 7. Western OHLC Bar Graphs
     if (chartMode === "OHLC_BAR" && candles.length > 0) {
       ctx.save();
       const tickWidth = Math.max(3, scaledBase * 0.42);
@@ -375,7 +375,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       candles.forEach((c) => {
         const colWorldX = c.gridCol * baseUnit;
         const screenColX = Math.round(worldToScreen(colWorldX, 0).x) + 0.5;
-
         if (screenColX < -50 || screenColX > width + 50) return;
 
         const openScreenY = Math.round(worldToScreen(0, priceToWorldY(c.open)).y) + 0.5;
@@ -387,41 +386,25 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.strokeStyle = isBull ? DRAFTING_THEME.bullishCandle : DRAFTING_THEME.bearishCandle;
         ctx.lineWidth = 1.8;
 
-        // 1. High-Low Central Spine
         ctx.beginPath();
         ctx.moveTo(screenColX, highScreenY);
         ctx.lineTo(screenColX, lowScreenY);
         ctx.stroke();
 
-        // 2. Open Tick (Extends to Left)
         ctx.beginPath();
         ctx.moveTo(screenColX - tickWidth, openScreenY);
         ctx.lineTo(screenColX, openScreenY);
         ctx.stroke();
 
-        // 3. Close Tick (Extends to Right)
         ctx.beginPath();
         ctx.moveTo(screenColX, closeScreenY);
         ctx.lineTo(screenColX + tickWidth, closeScreenY);
         ctx.stroke();
-
-        // Pattern Tag
-        if (showPatterns && c.pattern) {
-          ctx.save();
-          ctx.font = "bold 9px 'Courier New', monospace";
-          ctx.fillStyle = isBull ? "#2E7D32" : "#C62828";
-          const tagY = c.patternType === "BEARISH" ? highScreenY - 8 : lowScreenY + 14;
-          ctx.fillText(c.pattern, screenColX + 6, tagY);
-          ctx.restore();
-        }
       });
       ctx.restore();
     }
 
-    // -------------------------------------------------------------
-    // 8. GANN RIGHT-ANGLE "SWING STEPS" PLOTTING
-    // Rendered in SWING_STEP mode OR superimposed in HYBRID mode
-    // -------------------------------------------------------------
+    // 8. Gann Right-Angle Swing Steps
     if (
       (chartMode === "SWING_STEP" || chartMode === "HYBRID_CANDLE_SWING") &&
       swingPoints.length > 0
@@ -445,11 +428,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const nextWorldX = nextPoint.gridCol * baseUnit;
         const nextWorldY = nextPoint.gridRow * baseUnit;
 
-        // Step 1: Advance horizontally to new time node
         const cornerScreen = worldToScreen(nextWorldX, swingPoints[i - 1].gridRow * baseUnit);
         ctx.lineTo(cornerScreen.x, cornerScreen.y);
 
-        // Step 2: Step vertically to new price level
         const nextScreen = worldToScreen(nextWorldX, nextWorldY);
         ctx.lineTo(nextScreen.x, nextScreen.y);
 
@@ -460,10 +441,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       // Swing Vertex Nodes
       swingPoints.forEach((pt) => {
         const sPos = worldToScreen(pt.gridCol * baseUnit, pt.gridRow * baseUnit);
-
-        if (sPos.x < -50 || sPos.x > width + 50 || sPos.y < -50 || sPos.y > height + 50) {
-          return;
-        }
+        if (sPos.x < -50 || sPos.x > width + 50 || sPos.y < -50 || sPos.y > height + 50) return;
 
         const nodeSize = 6;
         ctx.fillStyle = pt.type === "SWING_HIGH" ? "#2E7D32" : "#C62828";
@@ -475,39 +453,89 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         if (chartMode === "SWING_STEP") {
           ctx.fillStyle = "#1E2A24";
           ctx.font = "600 10px 'Courier New', monospace";
-          const tag = `[${pt.gridCol},${pt.gridRow}] ₹${pt.price.toLocaleString("en-IN")}`;
+          const tag = `[${pt.gridCol},${pt.gridRow}] \u20B9${pt.price.toLocaleString("en-IN")}`;
           const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
           ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
         }
       });
-
       ctx.restore();
     }
+  }, [
+    pan,
+    zoom,
+    baseUnit,
+    chartMode,
+    showPatterns,
+    showVolumeBars,
+    showLeftAxis,
+    showRightAxis,
+    showTopAxis,
+    showBottomAxis,
+    candles,
+    swingPoints,
+    priceToWorldY,
+    worldToScreen,
+  ]);
 
-    // -------------------------------------------------------------
-    // 8.5 FULL-SCREEN RIGID SNAPPING PRECISION CROSSHAIR (STEP 2)
-    // Snaps strictly to grid intersection, rendered underneath Axis Rulers
-    // -------------------------------------------------------------
+  /**
+   * LAYER 3 (z-index: 30): Precision Crosshair, HUD, and Four-Sided Axis Rulers
+   * Decoupled ultra-fast rendering on grid-snapped cursor updates.
+   */
+  const renderUI = useCallback(() => {
+    const canvas = uiCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.width / dpr;
+    const height = canvas.height / dpr;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const scaledBase = baseUnit * zoom;
+    const topLeftWorld = screenToWorld(0, 0);
+    const bottomRightWorld = screenToWorld(width, height);
+
+    const minWorldX = Math.min(topLeftWorld.x, bottomRightWorld.x);
+    const maxWorldX = Math.max(topLeftWorld.x, bottomRightWorld.x);
+    const minWorldY = Math.min(topLeftWorld.y, bottomRightWorld.y);
+    const maxWorldY = Math.max(topLeftWorld.y, bottomRightWorld.y);
+
+    const startCol = Math.floor(minWorldX / baseUnit) - 1;
+    const endCol = Math.ceil(maxWorldX / baseUnit) + 1;
+    const startRow = Math.floor(minWorldY / baseUnit) - 1;
+    const endRow = Math.ceil(maxWorldY / baseUnit) + 1;
+
+    const leftRulerWidth = showLeftAxis ? 84 : 0;
+    const rightRulerWidth = showRightAxis ? 88 : 0;
+    const topRulerHeight = showTopAxis ? 30 : 0;
+    const bottomRulerHeight = showBottomAxis ? 32 : 0;
+
+    const mainLeft = leftRulerWidth;
+    const mainRight = width - rightRulerWidth;
+    const mainTop = topRulerHeight;
+    const mainBottom = height - bottomRulerHeight;
+
     const snapScreen = worldToScreen(cursorGrid.col * baseUnit, cursorGrid.row * baseUnit);
     const cx = Math.round(snapScreen.x) + 0.5;
     const cy = Math.round(snapScreen.y) + 0.5;
     const snappedPrice = basePrice + cursorGrid.row * pricePerUnit;
 
+    // 8.5 FULL-SCREEN RIGID SNAPPING PRECISION CROSSHAIR
     if (isHovered && showCrosshair) {
       ctx.save();
       if (cx >= -50 && cx <= width + 50 && cy >= -50 && cy <= height + 50) {
-        // Thin dashed slate stroke: setLineDash([4, 4])
         ctx.lineWidth = 1.0;
         ctx.strokeStyle = "rgba(55, 71, 79, 0.85)";
         ctx.setLineDash([4, 4]);
 
-        // Full-screen vertical line
         ctx.beginPath();
         ctx.moveTo(cx, 0);
         ctx.lineTo(cx, height);
         ctx.stroke();
 
-        // Full-screen horizontal line
         ctx.beginPath();
         ctx.moveTo(0, cy);
         ctx.lineTo(width, cy);
@@ -517,13 +545,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.setLineDash([]);
         ctx.lineWidth = 1.2;
         ctx.strokeStyle = "#1E2A24";
-        ctx.fillStyle = "rgba(46, 125, 50, 0.90)"; // Emerald center node
+        ctx.fillStyle = "rgba(46, 125, 50, 0.90)";
         ctx.beginPath();
         ctx.arc(cx, cy, 3, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
 
-        // 4 Precision Reticle Ticks around intersection
         const gap = 5;
         const arm = 10;
         ctx.beginPath();
@@ -533,10 +560,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + arm);
         ctx.stroke();
 
-        // Snapped Coordinate HUD Badge near cursor
+        // Snapped Coordinate HUD Badge
         const inchX = (cursorGrid.col / subdivisions).toFixed(2);
         const inchY = (cursorGrid.row / subdivisions).toFixed(2);
-        const badgeText = `[${cursorGrid.col}, ${cursorGrid.row}] (${inchX}", ${inchY}") ₹${snappedPrice.toLocaleString("en-IN")}`;
+        const badgeText = `[${cursorGrid.col}, ${cursorGrid.row}] (${inchX}", ${inchY}") \u20B9${snappedPrice.toLocaleString("en-IN")}`;
 
         ctx.font = "bold 9px 'Courier New', Courier, monospace";
         const txtW = ctx.measureText(badgeText).width;
@@ -564,14 +591,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // -------------------------------------------------------------
     // 9. FOUR-SIDED FIXED AXIS RULER TRACKS & CORNER JUNCTION BOXES
-    // Rendered on top so panning grid slides underneath seamlessly.
-    // -------------------------------------------------------------
     ctx.save();
     const rulerBg = isAxisTransparent
       ? "rgba(247, 246, 240, 0.75)"
-      : DRAFTING_THEME.paperBackground; // Solid #F7F6F0
+      : DRAFTING_THEME.paperBackground;
     const rulerBorder = "rgba(74, 120, 102, 0.50)";
     const charcoal = "#2C2C2C";
     const gannGreen = "rgba(74, 120, 102, 0.85)";
@@ -605,7 +629,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
         if (isMajor) {
           const priceVal = basePrice + row * pricePerUnit;
-          const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
+          const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
           ctx.fillStyle = charcoal;
@@ -620,9 +644,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         }
       }
 
-      // Crosshair Price Indicator (Left Track)
       if (isHovered && showCrosshair && cy >= mainTop && cy <= mainBottom) {
-        const pStr = `₹${snappedPrice.toLocaleString("en-IN")}`;
+        const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
         ctx.fillStyle = "#1B5E20";
         ctx.fillRect(0, cy - 9, leftRulerWidth, 18);
         ctx.fillStyle = "#FFFFFF";
@@ -661,7 +684,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
         if (isMajor) {
           const priceVal = basePrice + row * pricePerUnit;
-          const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
+          const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
           ctx.fillStyle = charcoal;
@@ -676,9 +699,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         }
       }
 
-      // Crosshair Price Indicator (Right Track)
       if (isHovered && showCrosshair && cy >= mainTop && cy <= mainBottom) {
-        const pStr = `₹${snappedPrice.toLocaleString("en-IN")}`;
+        const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
         ctx.fillStyle = "#1B5E20";
         ctx.fillRect(mainRight, cy - 9, rightRulerWidth, 18);
         ctx.fillStyle = "#FFFFFF";
@@ -726,7 +748,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         }
       }
 
-      // Crosshair Time Indicator (Top Track)
       if (isHovered && showCrosshair && cx >= mainLeft && cx <= mainRight) {
         const tStr = `T+${cursorGrid.col}`;
         const tagW = 48;
@@ -741,7 +762,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     // 4. BOTTOM TIME TRACK (X-AXIS)
     if (showBottomAxis) {
-      ctx.fillStyle = rulerBg; // ALWAYS explicitly set background!
+      ctx.fillStyle = rulerBg;
       ctx.fillRect(mainLeft, mainBottom, mainRight - mainLeft, bottomRulerHeight);
       ctx.strokeStyle = rulerBorder;
       ctx.lineWidth = 1.2;
@@ -777,7 +798,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         }
       }
 
-      // Crosshair Time Indicator (Bottom Track)
       if (isHovered && showCrosshair && cx >= mainLeft && cx <= mainRight) {
         const tStr = `T+${cursorGrid.col}`;
         const tagW = 48;
@@ -790,11 +810,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
     }
 
-    // 5. CORNER JUNCTION BOXES (Rendered if both adjacent intersecting axes are visible)
+    // 5. CORNER JUNCTION BOXES
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // Top-Left Junction
     if (showTopAxis && showLeftAxis) {
       ctx.fillStyle = rulerBg;
       ctx.fillRect(0, 0, leftRulerWidth, topRulerHeight);
@@ -805,7 +824,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.fillText("K&E 8x8", leftRulerWidth / 2, topRulerHeight / 2);
     }
 
-    // Top-Right Junction
     if (showTopAxis && showRightAxis) {
       ctx.fillStyle = rulerBg;
       ctx.fillRect(mainRight, 0, rightRulerWidth, topRulerHeight);
@@ -816,7 +834,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.fillText("K&E 8x8", mainRight + rightRulerWidth / 2, topRulerHeight / 2);
     }
 
-    // Bottom-Left Junction
     if (showBottomAxis && showLeftAxis) {
       ctx.fillStyle = rulerBg;
       ctx.fillRect(0, mainBottom, leftRulerWidth, bottomRulerHeight);
@@ -827,7 +844,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.fillText("K&E 8x8", leftRulerWidth / 2, mainBottom + bottomRulerHeight / 2);
     }
 
-    // Bottom-Right Junction
     if (showBottomAxis && showRightAxis) {
       ctx.fillStyle = rulerBg;
       ctx.fillRect(mainRight, mainBottom, rightRulerWidth, bottomRulerHeight);
@@ -843,72 +859,80 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     pan,
     zoom,
     baseUnit,
-    majorUnit,
     subdivisions,
-    chartMode,
-    showPatterns,
-    showVolumeBars,
+    isAxisTransparent,
     showTopAxis,
     showBottomAxis,
     showLeftAxis,
     showRightAxis,
-    isAxisTransparent,
     showCrosshair,
     isHovered,
     cursorGrid,
-    candles,
-    swingPoints,
     basePrice,
     pricePerUnit,
-    showGannRay45,
     screenToWorld,
     worldToScreen,
-    priceToWorldY,
   ]);
 
-  // Request Animation Frame sync
+  // Request Animation Frame Schedulers for decoupled layers
   useEffect(() => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-    animationFrameRef.current = requestAnimationFrame(render);
-
+    if (animFrameGridRef.current) cancelAnimationFrame(animFrameGridRef.current);
+    animFrameGridRef.current = requestAnimationFrame(renderGrid);
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      if (animFrameGridRef.current) cancelAnimationFrame(animFrameGridRef.current);
     };
-  }, [render]);
+  }, [renderGrid]);
 
-  // Window resize listener
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (animFrameChartRef.current) cancelAnimationFrame(animFrameChartRef.current);
+    animFrameChartRef.current = requestAnimationFrame(renderChart);
+    return () => {
+      if (animFrameChartRef.current) cancelAnimationFrame(animFrameChartRef.current);
+    };
+  }, [renderChart]);
 
+  useEffect(() => {
+    if (animFrameUIRef.current) cancelAnimationFrame(animFrameUIRef.current);
+    animFrameUIRef.current = requestAnimationFrame(renderUI);
+    return () => {
+      if (animFrameUIRef.current) cancelAnimationFrame(animFrameUIRef.current);
+    };
+  }, [renderUI]);
+
+  // Window resize listener synchronizes all 3 canvas buffers
+  useEffect(() => {
     const handleResize = () => {
       const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
+      const gCanvas = gridCanvasRef.current;
+      const cCanvas = chartCanvasRef.current;
+      const uCanvas = uiCanvasRef.current;
+      if (!gCanvas || !cCanvas || !uCanvas) return;
 
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      render();
+      const rect = gCanvas.getBoundingClientRect();
+      const w = Math.round(rect.width * dpr);
+      const h = Math.round(rect.height * dpr);
+
+      gCanvas.width = w; gCanvas.height = h;
+      cCanvas.width = w; cCanvas.height = h;
+      uCanvas.width = w; uCanvas.height = h;
+
+      renderGrid();
+      renderChart();
+      renderUI();
     };
 
     handleResize();
     window.addEventListener("resize", handleResize);
-
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [render]);
+  }, [renderGrid, renderChart, renderUI]);
 
   /**
-   * KEYBOARD ARROW KEY NAVIGATION:
-   * Mathematically aligned to K&E Grid (48px / 96px majorUnit increments)
+   * KEYBOARD ARROW KEY NAVIGATION
    */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is focusing an input field
       if (
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA"
@@ -916,9 +940,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         return;
       }
 
-      // Step Math: 48px (1/2 inch = 4 minor units), Shift+Arrow = 96px (1 full inch = 8 minor units)
       const stepDistance = e.shiftKey ? majorUnit : majorUnit / 2;
-
       switch (e.key) {
         case "ArrowUp":
           e.preventDefault();
@@ -948,7 +970,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [panBy, majorUnit]);
 
   /**
-   * MOUSE HANDLERS: Infinite Panning & Cursor-Centered Zooming
+   * MOUSE HANDLERS (Interacting on Layer 3 uiCanvas)
    */
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button === 0 || e.button === 1) {
@@ -958,7 +980,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
+    const canvas = uiCanvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -971,7 +993,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const deltaX = e.clientX - dragStartRef.current.x;
       const deltaY = e.clientY - dragStartRef.current.y;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
-
       panBy(deltaX, deltaY);
     }
   };
@@ -991,7 +1012,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const canvas = canvasRef.current;
+    const canvas = uiCanvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -1013,8 +1034,35 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         cursor: isDraggingRef.current ? "grabbing" : "crosshair",
       }}
     >
+      {/* LAYER 1 (z-index: 10): Background & K&E 8x8 Grid */}
       <canvas
-        ref={canvasRef}
+        ref={gridCanvasRef}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          zIndex: 10,
+          pointerEvents: "none",
+        }}
+      />
+      {/* LAYER 2 (z-index: 20): Candlesticks, Volume, and Swings */}
+      <canvas
+        ref={chartCanvasRef}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          zIndex: 20,
+          pointerEvents: "none",
+        }}
+      />
+      {/* LAYER 3 (z-index: 30): Precision Crosshair, HUD, and 4-Sided Axis Rulers */}
+      <canvas
+        ref={uiCanvasRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1022,8 +1070,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
         style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
           width: "100%",
           height: "100%",
+          zIndex: 30,
           display: "block",
         }}
       />
