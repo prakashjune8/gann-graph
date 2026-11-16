@@ -5,7 +5,7 @@ a = Analysis(
     ['D:\\ANTIGRAVITY PROJECT FOLDER\\GANN GRAPH\\desktop_app.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('dist', 'dist')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

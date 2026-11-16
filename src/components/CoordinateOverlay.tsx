@@ -5,13 +5,10 @@ export const CoordinateOverlay: React.FC = () => {
   const {
     pan,
     zoom,
-    baseUnit,
-    majorUnit,
     cursorWorld,
     cursorGrid,
     chartMode,
     candles,
-    swingPoints,
     worldYToPrice,
     showPatterns,
     showBottomAxis,

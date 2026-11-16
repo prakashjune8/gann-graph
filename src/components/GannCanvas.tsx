@@ -231,7 +231,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const scaledBase = baseUnit * zoom;
     const leftRulerWidth = showLeftAxis ? 84 : 0;
     const rightRulerWidth = showRightAxis ? 88 : 0;
-    const topRulerHeight = showTopAxis ? 30 : 0;
     const bottomRulerHeight = showBottomAxis ? 32 : 0;
 
     const mainLeft = leftRulerWidth;
@@ -469,7 +468,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     showVolumeBars,
     showLeftAxis,
     showRightAxis,
-    showTopAxis,
     showBottomAxis,
     candles,
     swingPoints,

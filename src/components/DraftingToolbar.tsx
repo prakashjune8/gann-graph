@@ -12,7 +12,6 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   setShowGannRay,
 }) => {
   const {
-    zoom,
     zoomAt,
     setZoom,
     resetView,

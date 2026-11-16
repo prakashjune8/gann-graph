@@ -94,8 +94,6 @@ export function extractGannSwings(
   let trend: "UP" | "DOWN" = "UP";
 
   candles.forEach((c, index) => {
-    const col = index * columnSpacing;
-
     if (trend === "UP" && index >= 2) {
       if (c.low < candles[index - 1].low && candles[index - 1].low < candles[index - 2].low) {
         trend = "DOWN";
