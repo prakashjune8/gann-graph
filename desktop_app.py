@@ -164,6 +164,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     <button class="btn active" id="btnPatterns" onclick="togglePatterns()">✓ Patterns (Hammer, Doji...)</button>
     <button class="btn active" id="btnVolume" onclick="toggleVolume()">✓ Volume Bar</button>
     <button class="btn active" id="btnGannRay" onclick="toggleGannRay()">✓ 1x1 45° Ray</button>
+    <button class="btn active" id="btnCrosshair" onclick="toggleCrosshair()" title="Toggle Full-Screen Rigid Snapping Precision Crosshair (Step 2)">🎯 Crosshair</button>
 
     <div class="divider"></div>
 
@@ -240,6 +241,8 @@ HTML_CONTENT = """<!DOCTYPE html>
       showPatterns: true,
       showVolumeBars: true,
       showGannRay: true,
+      showCrosshair: true,
+      isHovering: false,
       showTopAxis: true,
       showBottomAxis: true,
       showLeftAxis: true,
@@ -680,6 +683,87 @@ HTML_CONTENT = """<!DOCTYPE html>
       }
 
       // -------------------------------------------------------------
+      // 8.5 FULL-SCREEN RIGID SNAPPING PRECISION CROSSHAIR (STEP 2)
+      // Rigidly snaps to nearest K&E grid intersection [col * baseUnit, row * baseUnit].
+      // Rendered on top of candles/grid, but underneath fixed Axis Rulers.
+      // -------------------------------------------------------------
+      const snapScreen = worldToScreen(state.cursor.col * state.baseUnit, state.cursor.row * state.baseUnit);
+      const cx = Math.round(snapScreen.x) + 0.5;
+      const cy = Math.round(snapScreen.y) + 0.5;
+      const snappedPrice = state.basePrice + state.cursor.row * state.pricePerUnit;
+
+      if (state.isHovering && state.showCrosshair !== false) {
+        ctx.save();
+        if (cx >= -50 && cx <= width + 50 && cy >= -50 && cy <= height + 50) {
+          // Thin dashed slate/charcoal stroke (rgba(55, 71, 79, 0.85))
+          ctx.lineWidth = 1.0;
+          ctx.strokeStyle = "rgba(55, 71, 79, 0.85)";
+          ctx.setLineDash([4, 4]);
+
+          // Full-screen vertical line
+          ctx.beginPath();
+          ctx.moveTo(cx, 0);
+          ctx.lineTo(cx, height);
+          ctx.stroke();
+
+          // Full-screen horizontal line
+          ctx.beginPath();
+          ctx.moveTo(0, cy);
+          ctx.lineTo(width, cy);
+          ctx.stroke();
+
+          // Precision Drafting Reticle Target
+          ctx.setLineDash([]);
+          ctx.lineWidth = 1.2;
+          ctx.strokeStyle = "#1E2A24";
+          ctx.fillStyle = "rgba(46, 125, 50, 0.90)"; // Emerald center node
+          ctx.beginPath();
+          ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          // 4 Precision Reticle Ticks around intersection
+          const gap = 5;
+          const arm = 10;
+          ctx.beginPath();
+          ctx.moveTo(cx - arm, cy); ctx.lineTo(cx - gap, cy);
+          ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + arm, cy);
+          ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy - gap);
+          ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + arm);
+          ctx.stroke();
+
+          // Snapped Coordinate Pill Badge near cursor
+          const inchX = (state.cursor.col / state.subdivisions).toFixed(2);
+          const inchY = (state.cursor.row / state.subdivisions).toFixed(2);
+          const badgeText = `[${state.cursor.col}, ${state.cursor.row}] (${inchX}", ${inchY}") ₹${snappedPrice.toLocaleString("en-IN")}`;
+
+          ctx.font = "bold 9px 'Courier New', Courier, monospace";
+          const txtW = ctx.measureText(badgeText).width;
+          const bW = txtW + 10;
+          const bH = 15;
+          let bX = cx + 8;
+          let bY = cy - 20;
+
+          if (bX + bW > width - 90) bX = cx - bW - 8;
+          if (bY < 35) bY = cy + 18;
+
+          ctx.fillStyle = "rgba(247, 246, 240, 0.94)";
+          ctx.strokeStyle = "rgba(74, 120, 102, 0.55)";
+          ctx.lineWidth = 1;
+          if (ctx.roundRect) ctx.roundRect(bX, bY - 11, bW, bH, 3);
+          else ctx.rect(bX, bY - 11, bW, bH);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = "#2C2C2C";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(badgeText, bX + 5, bY - 3.5);
+        }
+        ctx.restore();
+      }
+
+      // -------------------------------------------------------------
       // 9. FOUR-SIDED FIXED AXIS RULER TRACKS & CORNER JUNCTION BOXES
       // Rendered on top so panning grid slides underneath seamlessly.
       // -------------------------------------------------------------
@@ -732,6 +816,17 @@ HTML_CONTENT = """<!DOCTYPE html>
             ctx.fillText(inchStr, leftRulerWidth - 10, sy);
           }
         }
+
+        // Crosshair Price Indicator (Left Track)
+        if (state.isHovering && state.showCrosshair !== false && cy >= mainTop && cy <= mainBottom) {
+          const pStr = `₹${snappedPrice.toLocaleString("en-IN")}`;
+          ctx.fillStyle = "#1B5E20";
+          ctx.fillRect(0, cy - 9, leftRulerWidth, 18);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "bold 9px 'Courier New', Courier, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(pStr, leftRulerWidth / 2, cy);
+        }
       }
 
       // 2. RIGHT PRICE TRACK (Y-AXIS)
@@ -777,6 +872,17 @@ HTML_CONTENT = """<!DOCTYPE html>
             ctx.fillText(inchStr, width - 8, sy);
           }
         }
+
+        // Crosshair Price Indicator (Right Track)
+        if (state.isHovering && state.showCrosshair !== false && cy >= mainTop && cy <= mainBottom) {
+          const pStr = `₹${snappedPrice.toLocaleString("en-IN")}`;
+          ctx.fillStyle = "#1B5E20";
+          ctx.fillRect(mainRight, cy - 9, rightRulerWidth, 18);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "bold 9px 'Courier New', Courier, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(pStr, mainRight + rightRulerWidth / 2, cy);
+        }
       }
 
       // 3. TOP TIME TRACK (X-AXIS)
@@ -816,6 +922,18 @@ HTML_CONTENT = """<!DOCTYPE html>
             ctx.fillText(colStr, sx, topRulerHeight / 2);
           }
         }
+
+        // Crosshair Time Indicator (Top Track)
+        if (state.isHovering && state.showCrosshair !== false && cx >= mainLeft && cx <= mainRight) {
+          const tStr = `T+${state.cursor.col}`;
+          const tagW = 48;
+          ctx.fillStyle = "#1B5E20";
+          ctx.fillRect(cx - tagW / 2, 0, tagW, topRulerHeight);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "bold 9px 'Courier New', Courier, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(tStr, cx, topRulerHeight / 2);
+        }
       }
 
       // 4. BOTTOM TIME TRACK (X-AXIS)
@@ -854,6 +972,18 @@ HTML_CONTENT = """<!DOCTYPE html>
             ctx.font = "bold 9px 'Courier New', Courier, monospace";
             ctx.fillText(colStr, sx, mainBottom + 19);
           }
+        }
+
+        // Crosshair Time Indicator (Bottom Track)
+        if (state.isHovering && state.showCrosshair !== false && cx >= mainLeft && cx <= mainRight) {
+          const tStr = `T+${state.cursor.col}`;
+          const tagW = 48;
+          ctx.fillStyle = "#1B5E20";
+          ctx.fillRect(cx - tagW / 2, mainBottom, tagW, bottomRulerHeight);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "bold 9px 'Courier New', Courier, monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(tStr, cx, mainBottom + 19);
         }
       }
 
@@ -909,6 +1039,17 @@ HTML_CONTENT = """<!DOCTYPE html>
     }
 
     // User Interactions
+    canvas.addEventListener("mouseenter", () => {
+      state.isHovering = true;
+      requestRender();
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      state.isHovering = false;
+      state.isDragging = false;
+      requestRender();
+    });
+
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 0 || e.button === 1) {
         state.isDragging = true;
@@ -930,8 +1071,12 @@ HTML_CONTENT = """<!DOCTYPE html>
       const w = screenToWorld(sx, sy);
       state.cursor.worldX = w.x;
       state.cursor.worldY = w.y;
-      state.cursor.col = Math.round(w.x / state.baseUnit);
-      state.cursor.row = Math.round(w.y / state.baseUnit);
+      const col = Math.round(w.x / state.baseUnit);
+      const row = Math.round(w.y / state.baseUnit);
+      const snapChanged = (col !== state.cursor.col || row !== state.cursor.row);
+      state.cursor.col = col;
+      state.cursor.row = row;
+      if (!state.isHovering) state.isHovering = true;
 
       if (state.isDragging) {
         const dx = e.clientX - state.dragStart.x;
@@ -939,6 +1084,8 @@ HTML_CONTENT = """<!DOCTYPE html>
         state.dragStart = { x: e.clientX, y: e.clientY };
         state.pan.x += dx;
         state.pan.y += dy;
+        requestRender();
+      } else if (snapChanged) {
         requestRender();
       }
 
@@ -1034,6 +1181,16 @@ HTML_CONTENT = """<!DOCTYPE html>
       const btn = document.getElementById("btnGannRay");
       btn.className = state.showGannRay ? "btn active" : "btn";
       btn.textContent = state.showGannRay ? "✓ 1x1 45° Ray" : "1x1 45° Ray";
+      requestRender();
+    }
+
+    function toggleCrosshair() {
+      state.showCrosshair = !state.showCrosshair;
+      const btn = document.getElementById("btnCrosshair");
+      if (btn) {
+        btn.className = state.showCrosshair ? "btn active" : "btn";
+        btn.textContent = state.showCrosshair ? "🎯 Crosshair" : "🎯 Off";
+      }
       requestRender();
     }
 

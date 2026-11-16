@@ -27,11 +27,13 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     showLeftAxis,
     showRightAxis,
     isAxisTransparent,
+    showCrosshair,
     toggleTopAxis,
     toggleBottomAxis,
     toggleLeftAxis,
     toggleRightAxis,
     toggleAxisTransparency,
+    toggleCrosshair,
     loadSampleDataset,
     clearAllData,
     candles,
@@ -162,6 +164,20 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           title="Toggle 1x1 45° True Diagonal Gann Ray"
         >
           {showGannRay ? "✓ 1x1 45° Ray" : "1x1 45° Ray"}
+        </button>
+
+        <button
+          onClick={toggleCrosshair}
+          style={{
+            ...buttonStyle,
+            backgroundColor: showCrosshair ? "#E0F2F1" : "transparent",
+            borderColor: showCrosshair ? "#00796B" : "rgba(74, 120, 102, 0.40)",
+            color: showCrosshair ? "#004D40" : "#555",
+            fontWeight: showCrosshair ? "bold" : "normal",
+          }}
+          title="Toggle Full-Screen Rigid Snapping Precision Crosshair (Step 2)"
+        >
+          {showCrosshair ? "🎯 Crosshair" : "🎯 Off"}
         </button>
       </div>
 
