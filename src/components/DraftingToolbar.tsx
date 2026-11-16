@@ -16,6 +16,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     zoomAt,
     setZoom,
     resetView,
+    jumpToLatest,
     chartMode,
     setChartMode,
     showPatterns,
@@ -280,6 +281,19 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           title="Reset to Origin"
         >
           Origin
+        </button>
+        <button
+          onClick={() => jumpToLatest(window.innerWidth, window.innerHeight)}
+          style={{
+            ...buttonStyle,
+            backgroundColor: "#E8F5E9",
+            borderColor: "#2E7D32",
+            color: "#1B5E20",
+            fontWeight: "bold",
+          }}
+          title="Jump to Latest (Auto-Center with Future Space Buffer)"
+        >
+          ▶ Latest
         </button>
       </div>
 

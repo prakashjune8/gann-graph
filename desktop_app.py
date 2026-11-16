@@ -198,6 +198,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     <button class="btn" onclick="zoomOut()">- Zoom</button>
     <button class="btn" style="font-weight:bold" onclick="resetZoom100()">1:1 (100%)</button>
     <button class="btn" onclick="resetOrigin()">Origin</button>
+    <button class="btn" id="btnLatest" onclick="jumpToLatest()" title="Jump to Latest (Auto-Center with Future Space Buffer)" style="color: #1B5E20; font-weight: bold; background: #E8F5E9; border-color: #2E7D32;">▶ Latest</button>
 
     <div class="divider"></div>
 
@@ -1332,6 +1333,48 @@ HTML_CONTENT = """<!DOCTYPE html>
       requestRender();
     }
 
+    function jumpToLatest() {
+      if (!state.candles || state.candles.length === 0) return;
+      let maxCol = -Infinity;
+      let latestCandle = state.candles[state.candles.length - 1] || null;
+
+      state.candles.forEach(c => {
+        if (c.gridCol > maxCol) {
+          maxCol = c.gridCol;
+          latestCandle = c;
+        }
+      });
+
+      if (state.swings && state.swings.length > 0) {
+        state.swings.forEach(s => {
+          if (s.gridCol > maxCol) maxCol = s.gridCol;
+        });
+      }
+
+      if (maxCol === -Infinity) maxCol = 0;
+
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      // Visual buffer of 3.5 major units (approx. 336px) on right edge
+      const rightRulerOffset = state.showRightAxis ? 88 : 0;
+      const futureBuffer = (3.5 * state.majorUnit * state.zoom) + rightRulerOffset;
+
+      const latestWorldX = maxCol * state.baseUnit;
+      state.pan.x = (viewportWidth - futureBuffer) - (latestWorldX * state.zoom);
+
+      if (latestCandle) {
+        const latestWorldY = priceToWorldY(latestCandle.close);
+        const topRulerOffset = state.showTopAxis ? 30 : 0;
+        const bottomRulerOffset = state.showBottomAxis ? 32 : 0;
+        const centerY = (viewportHeight + topRulerOffset - bottomRulerOffset) / 2;
+        state.pan.y = centerY + (latestWorldY * state.zoom);
+      }
+
+      updateHUD();
+      requestRenderAll();
+    }
+
     function updateHUD() {
       document.getElementById("hudMode").textContent = state.chartMode;
       document.getElementById("hudZoom").textContent = `${Math.round(state.zoom * 100)}% (${state.zoom.toFixed(2)}x)`;
@@ -1348,6 +1391,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     updateLayoutPositions();
     resizeCanvas();
     loadSampleNifty();
+    jumpToLatest();
   </script>
 </body>
 </html>

@@ -123,6 +123,7 @@ export interface GridState {
   zoomAt: (screenX: number, screenY: number, zoomFactorDelta: number) => void;
   setZoom: (zoom: number) => void;
   resetView: (canvasWidth?: number, canvasHeight?: number) => void;
+  jumpToLatest: (viewportWidth?: number, viewportHeight?: number) => void;
   updateCursor: (screenX: number, screenY: number) => void;
   setHovered: (hovered: boolean) => void;
 
@@ -238,6 +239,62 @@ export const useGridState = create<GridState>((set, get) => ({
     set({
       pan: { x: Math.floor(canvasWidth * 0.12), y: Math.floor(canvasHeight * 0.75) },
       zoom: 1.0,
+    });
+  },
+
+  jumpToLatest: (viewportWidth = 1440, viewportHeight = 900) => {
+    const {
+      candles,
+      swingPoints,
+      baseUnit,
+      majorUnit,
+      zoom,
+      priceToWorldY,
+      showRightAxis,
+      showTopAxis,
+      showBottomAxis,
+    } = get();
+    if (candles.length === 0 && swingPoints.length === 0) return;
+
+    let maxCol = -Infinity;
+    let latestCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+
+    candles.forEach((c) => {
+      if (c.gridCol > maxCol) {
+        maxCol = c.gridCol;
+        latestCandle = c;
+      }
+    });
+
+    swingPoints.forEach((s) => {
+      if (s.gridCol > maxCol) {
+        maxCol = s.gridCol;
+      }
+    });
+
+    if (maxCol === -Infinity) maxCol = 0;
+
+    // Buffer of 3.5 major units (approx. 336px) on right edge
+    const rightRulerOffset = showRightAxis ? 88 : 0;
+    const futureBuffer = 3.5 * majorUnit * zoom + rightRulerOffset;
+
+    const latestWorldX = maxCol * baseUnit;
+    const targetPanX = viewportWidth - futureBuffer - latestWorldX * zoom;
+
+    let targetPanY = get().pan.y;
+    if (latestCandle) {
+      const latestWorldY = priceToWorldY(latestCandle.close);
+      const topOffset = showTopAxis ? 30 : 0;
+      const bottomOffset = showBottomAxis ? 32 : 0;
+      const centerY = (viewportHeight + topOffset - bottomOffset) / 2;
+      targetPanY = centerY + latestWorldY * zoom;
+    }
+
+    set({
+      pan: {
+        x: targetPanX,
+        y: targetPanY,
+      },
     });
   },
 
