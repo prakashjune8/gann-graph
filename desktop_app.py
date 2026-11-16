@@ -94,8 +94,8 @@ HTML_CONTENT = """<!DOCTYPE html>
     /* HUD */
     .hud {
       position: absolute;
-      bottom: 16px;
-      left: 16px;
+      bottom: 42px;
+      left: 96px;
       background: rgba(247, 246, 240, 0.95);
       border: 1px solid rgba(74, 120, 102, 0.45);
       border-radius: 4px;
@@ -107,6 +107,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       line-height: 1.5;
       z-index: 100;
       min-width: 350px;
+      transition: bottom 0.2s ease, left 0.2s ease;
     }
     .hud-header {
       display: flex;
@@ -501,7 +502,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       const leftRulerWidth = state.showLeftAxis ? 84 : 0;
       const rightRulerWidth = state.showRightAxis ? 88 : 0;
       const topRulerHeight = state.showTopAxis ? 30 : 0;
-      const bottomRulerHeight = state.showBottomAxis ? 30 : 0;
+      const bottomRulerHeight = state.showBottomAxis ? 32 : 0;
 
       const mainLeft = leftRulerWidth;
       const mainRight = width - rightRulerWidth;
@@ -681,18 +682,23 @@ HTML_CONTENT = """<!DOCTYPE html>
       // Rendered on top so panning grid slides underneath seamlessly.
       // -------------------------------------------------------------
       ctx.save();
-      ctx.fillStyle = THEME.paperBackground; // Solid #F7F6F0
-      ctx.strokeStyle = "rgba(74, 120, 102, 0.50)";
-      ctx.lineWidth = 1.2;
+      const rulerBg = THEME.paperBackground; // Solid #F7F6F0
+      const rulerBorder = "rgba(74, 120, 102, 0.50)";
+      const charcoal = "#2C2C2C";
+      const gannGreen = "rgba(74, 120, 102, 0.85)";
 
       // 1. LEFT PRICE TRACK (Y-AXIS)
       if (state.showLeftAxis) {
-        ctx.fillRect(0, mainTop, leftRulerWidth, mainBottom - mainTop);
+        ctx.fillStyle = rulerBg;
+        ctx.fillRect(0, 0, leftRulerWidth, height);
+        ctx.strokeStyle = rulerBorder;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.moveTo(Math.round(leftRulerWidth) + 0.5, 0);
         ctx.lineTo(Math.round(leftRulerWidth) + 0.5, height);
         ctx.stroke();
 
+        ctx.textBaseline = "middle";
         for (let row = startRow; row <= endRow; row++) {
           const sy = Math.round(state.pan.y - row * scaledBase) + 0.5;
           if (sy < mainTop || sy > mainBottom) continue;
@@ -701,7 +707,7 @@ HTML_CONTENT = """<!DOCTYPE html>
           const isIntermediate = row % 2 === 0;
           const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
           ctx.lineWidth = isMajor ? 1.2 : 0.8;
           ctx.beginPath();
           ctx.moveTo(leftRulerWidth, sy);
@@ -713,25 +719,31 @@ HTML_CONTENT = """<!DOCTYPE html>
             const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
             const inchStr = `${row / state.subdivisions}"`;
 
-            ctx.fillStyle = "#2C2C2C";
+            ctx.fillStyle = charcoal;
             ctx.font = "bold 10px 'Courier New', Courier, monospace";
-            ctx.fillText(priceStr, 8, sy + 3.5);
+            ctx.textAlign = "left";
+            ctx.fillText(priceStr, 6, sy);
 
             ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
             ctx.font = "8px 'Courier New', Courier, monospace";
-            ctx.fillText(inchStr, leftRulerWidth - 22, sy + 3.5);
+            ctx.textAlign = "right";
+            ctx.fillText(inchStr, leftRulerWidth - 10, sy);
           }
         }
       }
 
       // 2. RIGHT PRICE TRACK (Y-AXIS)
       if (state.showRightAxis) {
-        ctx.fillRect(mainRight, mainTop, rightRulerWidth, mainBottom - mainTop);
+        ctx.fillStyle = rulerBg;
+        ctx.fillRect(mainRight, 0, rightRulerWidth, height);
+        ctx.strokeStyle = rulerBorder;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.moveTo(Math.round(mainRight) + 0.5, 0);
         ctx.lineTo(Math.round(mainRight) + 0.5, height);
         ctx.stroke();
 
+        ctx.textBaseline = "middle";
         for (let row = startRow; row <= endRow; row++) {
           const sy = Math.round(state.pan.y - row * scaledBase) + 0.5;
           if (sy < mainTop || sy > mainBottom) continue;
@@ -740,7 +752,7 @@ HTML_CONTENT = """<!DOCTYPE html>
           const isIntermediate = row % 2 === 0;
           const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
           ctx.lineWidth = isMajor ? 1.2 : 0.8;
           ctx.beginPath();
           ctx.moveTo(mainRight, sy);
@@ -752,25 +764,32 @@ HTML_CONTENT = """<!DOCTYPE html>
             const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
             const inchStr = `${row / state.subdivisions}"`;
 
-            ctx.fillStyle = "#2C2C2C";
+            ctx.fillStyle = charcoal;
             ctx.font = "bold 10px 'Courier New', Courier, monospace";
-            ctx.fillText(priceStr, mainRight + 12, sy + 3.5);
+            ctx.textAlign = "left";
+            ctx.fillText(priceStr, mainRight + 10, sy);
 
             ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
             ctx.font = "8px 'Courier New', Courier, monospace";
-            ctx.fillText(inchStr, width - 24, sy + 3.5);
+            ctx.textAlign = "right";
+            ctx.fillText(inchStr, width - 8, sy);
           }
         }
       }
 
       // 3. TOP TIME TRACK (X-AXIS)
       if (state.showTopAxis) {
+        ctx.fillStyle = rulerBg;
         ctx.fillRect(mainLeft, 0, mainRight - mainLeft, topRulerHeight);
+        ctx.strokeStyle = rulerBorder;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.moveTo(0, Math.round(topRulerHeight) + 0.5);
-        ctx.lineTo(width, Math.round(topRulerHeight) + 0.5);
+        ctx.moveTo(mainLeft, Math.round(topRulerHeight) + 0.5);
+        ctx.lineTo(mainRight, Math.round(topRulerHeight) + 0.5);
         ctx.stroke();
 
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
         for (let col = startCol; col <= endCol; col++) {
           const sx = Math.round(state.pan.x + col * scaledBase) + 0.5;
           if (sx < mainLeft || sx > mainRight) continue;
@@ -779,7 +798,7 @@ HTML_CONTENT = """<!DOCTYPE html>
           const isIntermediate = col % 2 === 0;
           const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
           ctx.lineWidth = isMajor ? 1.2 : 0.8;
           ctx.beginPath();
           ctx.moveTo(sx, topRulerHeight);
@@ -790,21 +809,26 @@ HTML_CONTENT = """<!DOCTYPE html>
             const inchIdx = col / state.subdivisions;
             const colStr = `${inchIdx}" [T+${col}]`;
 
-            ctx.fillStyle = "#2C2C2C";
+            ctx.fillStyle = charcoal;
             ctx.font = "bold 9px 'Courier New', Courier, monospace";
-            ctx.fillText(colStr, sx - 22, 18);
+            ctx.fillText(colStr, sx, topRulerHeight / 2);
           }
         }
       }
 
       // 4. BOTTOM TIME TRACK (X-AXIS)
       if (state.showBottomAxis) {
+        ctx.fillStyle = rulerBg; // ALWAYS explicitly set background!
         ctx.fillRect(mainLeft, mainBottom, mainRight - mainLeft, bottomRulerHeight);
+        ctx.strokeStyle = rulerBorder;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.moveTo(0, Math.round(mainBottom) + 0.5);
-        ctx.lineTo(width, Math.round(mainBottom) + 0.5);
+        ctx.moveTo(mainLeft, Math.round(mainBottom) + 0.5);
+        ctx.lineTo(mainRight, Math.round(mainBottom) + 0.5);
         ctx.stroke();
 
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
         for (let col = startCol; col <= endCol; col++) {
           const sx = Math.round(state.pan.x + col * scaledBase) + 0.5;
           if (sx < mainLeft || sx > mainRight) continue;
@@ -813,7 +837,7 @@ HTML_CONTENT = """<!DOCTYPE html>
           const isIntermediate = col % 2 === 0;
           const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-          ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+          ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
           ctx.lineWidth = isMajor ? 1.2 : 0.8;
           ctx.beginPath();
           ctx.moveTo(sx, mainBottom);
@@ -824,44 +848,59 @@ HTML_CONTENT = """<!DOCTYPE html>
             const inchIdx = col / state.subdivisions;
             const colStr = `${inchIdx}" [T+${col}]`;
 
-            ctx.fillStyle = "#2C2C2C";
+            ctx.fillStyle = charcoal;
             ctx.font = "bold 9px 'Courier New', Courier, monospace";
-            ctx.fillText(colStr, sx - 22, height - 10);
+            ctx.fillText(colStr, sx, mainBottom + 19);
           }
         }
       }
 
       // 5. CORNER JUNCTION BOXES (Rendered if both adjacent intersecting axes are visible)
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
       // Top-Left Junction
       if (state.showTopAxis && state.showLeftAxis) {
+        ctx.fillStyle = rulerBg;
         ctx.fillRect(0, 0, leftRulerWidth, topRulerHeight);
-        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.strokeStyle = rulerBorder;
+        ctx.strokeRect(0, 0, leftRulerWidth, topRulerHeight);
+        ctx.fillStyle = gannGreen;
         ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.fillText("K&E 8x8", 14, 19);
+        ctx.fillText("K&E 8x8", leftRulerWidth / 2, topRulerHeight / 2);
       }
 
       // Top-Right Junction
       if (state.showTopAxis && state.showRightAxis) {
+        ctx.fillStyle = rulerBg;
         ctx.fillRect(mainRight, 0, rightRulerWidth, topRulerHeight);
-        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.strokeStyle = rulerBorder;
+        ctx.strokeRect(mainRight, 0, rightRulerWidth, topRulerHeight);
+        ctx.fillStyle = gannGreen;
         ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.fillText("K&E 8x8", mainRight + 16, 19);
+        ctx.fillText("K&E 8x8", mainRight + rightRulerWidth / 2, topRulerHeight / 2);
       }
 
       // Bottom-Left Junction
       if (state.showBottomAxis && state.showLeftAxis) {
+        ctx.fillStyle = rulerBg;
         ctx.fillRect(0, mainBottom, leftRulerWidth, bottomRulerHeight);
-        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.strokeStyle = rulerBorder;
+        ctx.strokeRect(0, mainBottom, leftRulerWidth, bottomRulerHeight);
+        ctx.fillStyle = gannGreen;
         ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.fillText("K&E 8x8", 14, height - 11);
+        ctx.fillText("K&E 8x8", leftRulerWidth / 2, mainBottom + bottomRulerHeight / 2);
       }
 
       // Bottom-Right Junction
       if (state.showBottomAxis && state.showRightAxis) {
+        ctx.fillStyle = rulerBg;
         ctx.fillRect(mainRight, mainBottom, rightRulerWidth, bottomRulerHeight);
-        ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+        ctx.strokeStyle = rulerBorder;
+        ctx.strokeRect(mainRight, mainBottom, rightRulerWidth, bottomRulerHeight);
+        ctx.fillStyle = gannGreen;
         ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.fillText("K&E 8x8", mainRight + 16, height - 11);
+        ctx.fillText("K&E 8x8", mainRight + rightRulerWidth / 2, mainBottom + bottomRulerHeight / 2);
       }
 
       ctx.restore();
@@ -1023,13 +1062,21 @@ HTML_CONTENT = """<!DOCTYPE html>
         btnRight.textContent = state.showRightAxis ? "🔲 Right" : "◻ Right";
       }
 
+      updateLayoutPositions();
+      requestRender();
+    }
+
+    function updateLayoutPositions() {
       const tb = document.querySelector(".toolbar");
       if (tb) {
         tb.style.top = state.showTopAxis ? "40px" : "14px";
         tb.style.left = state.showLeftAxis ? "96px" : "14px";
       }
-
-      requestRender();
+      const hud = document.querySelector(".hud");
+      if (hud) {
+        hud.style.bottom = state.showBottomAxis ? "42px" : "14px";
+        hud.style.left = state.showLeftAxis ? "96px" : "14px";
+      }
     }
 
     function zoomIn() {
@@ -1080,6 +1127,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     }
 
     // Startup
+    updateLayoutPositions();
     resizeCanvas();
     loadSampleNifty();
   </script>

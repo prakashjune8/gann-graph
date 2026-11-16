@@ -14,6 +14,8 @@ export const CoordinateOverlay: React.FC = () => {
     swingPoints,
     worldYToPrice,
     showPatterns,
+    showBottomAxis,
+    showLeftAxis,
   } = useGridState();
 
   const zoomPercent = Math.round(zoom * 100);
@@ -27,8 +29,9 @@ export const CoordinateOverlay: React.FC = () => {
     <div
       style={{
         position: "absolute",
-        bottom: 16,
-        left: 16,
+        bottom: showBottomAxis ? 42 : 14,
+        left: showLeftAxis ? 96 : 14,
+        transition: "bottom 0.2s ease, left 0.2s ease",
         backgroundColor: "rgba(247, 246, 240, 0.95)",
         border: "1px solid rgba(74, 120, 102, 0.45)",
         borderRadius: 4,

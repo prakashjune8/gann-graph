@@ -25,3 +25,9 @@ dist-ssr
 
 # Tauri
 src-tauri/target
+
+# Python & Build
+__pycache__/
+*.pyc
+build/
+*.spec

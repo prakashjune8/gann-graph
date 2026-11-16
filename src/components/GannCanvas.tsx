@@ -216,7 +216,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const leftRulerWidth = showLeftAxis ? 84 : 0;
     const rightRulerWidth = showRightAxis ? 88 : 0;
     const topRulerHeight = showTopAxis ? 30 : 0;
-    const bottomRulerHeight = showBottomAxis ? 30 : 0;
+    const bottomRulerHeight = showBottomAxis ? 32 : 0;
 
     const mainLeft = leftRulerWidth;
     const mainRight = width - rightRulerWidth;
@@ -485,18 +485,23 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     // Rendered on top so panning grid slides underneath seamlessly.
     // -------------------------------------------------------------
     ctx.save();
-    ctx.fillStyle = DRAFTING_THEME.paperBackground; // Solid #F7F6F0
-    ctx.strokeStyle = "rgba(74, 120, 102, 0.50)";
-    ctx.lineWidth = 1.2;
+    const rulerBg = DRAFTING_THEME.paperBackground; // Solid #F7F6F0
+    const rulerBorder = "rgba(74, 120, 102, 0.50)";
+    const charcoal = "#2C2C2C";
+    const gannGreen = "rgba(74, 120, 102, 0.85)";
 
     // 1. LEFT PRICE TRACK (Y-AXIS)
     if (showLeftAxis) {
-      ctx.fillRect(0, mainTop, leftRulerWidth, mainBottom - mainTop);
+      ctx.fillStyle = rulerBg;
+      ctx.fillRect(0, 0, leftRulerWidth, height);
+      ctx.strokeStyle = rulerBorder;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.moveTo(Math.round(leftRulerWidth) + 0.5, 0);
       ctx.lineTo(Math.round(leftRulerWidth) + 0.5, height);
       ctx.stroke();
 
+      ctx.textBaseline = "middle";
       for (let row = startRow; row <= endRow; row++) {
         const sy = Math.round(pan.y - row * scaledBase) + 0.5;
         if (sy < mainTop || sy > mainBottom) continue;
@@ -505,7 +510,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const isIntermediate = row % 2 === 0;
         const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+        ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
         ctx.lineWidth = isMajor ? 1.2 : 0.8;
         ctx.beginPath();
         ctx.moveTo(leftRulerWidth, sy);
@@ -517,25 +522,31 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
-          ctx.fillStyle = "#2C2C2C";
+          ctx.fillStyle = charcoal;
           ctx.font = "bold 10px 'Courier New', Courier, monospace";
-          ctx.fillText(priceStr, 8, sy + 3.5);
+          ctx.textAlign = "left";
+          ctx.fillText(priceStr, 6, sy);
 
           ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
           ctx.font = "8px 'Courier New', Courier, monospace";
-          ctx.fillText(inchStr, leftRulerWidth - 22, sy + 3.5);
+          ctx.textAlign = "right";
+          ctx.fillText(inchStr, leftRulerWidth - 10, sy);
         }
       }
     }
 
     // 2. RIGHT PRICE TRACK (Y-AXIS)
     if (showRightAxis) {
-      ctx.fillRect(mainRight, mainTop, rightRulerWidth, mainBottom - mainTop);
+      ctx.fillStyle = rulerBg;
+      ctx.fillRect(mainRight, 0, rightRulerWidth, height);
+      ctx.strokeStyle = rulerBorder;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.moveTo(Math.round(mainRight) + 0.5, 0);
       ctx.lineTo(Math.round(mainRight) + 0.5, height);
       ctx.stroke();
 
+      ctx.textBaseline = "middle";
       for (let row = startRow; row <= endRow; row++) {
         const sy = Math.round(pan.y - row * scaledBase) + 0.5;
         if (sy < mainTop || sy > mainBottom) continue;
@@ -544,7 +555,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const isIntermediate = row % 2 === 0;
         const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+        ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
         ctx.lineWidth = isMajor ? 1.2 : 0.8;
         ctx.beginPath();
         ctx.moveTo(mainRight, sy);
@@ -556,25 +567,32 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           const priceStr = `₹${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
-          ctx.fillStyle = "#2C2C2C";
+          ctx.fillStyle = charcoal;
           ctx.font = "bold 10px 'Courier New', Courier, monospace";
-          ctx.fillText(priceStr, mainRight + 12, sy + 3.5);
+          ctx.textAlign = "left";
+          ctx.fillText(priceStr, mainRight + 10, sy);
 
           ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
           ctx.font = "8px 'Courier New', Courier, monospace";
-          ctx.fillText(inchStr, width - 24, sy + 3.5);
+          ctx.textAlign = "right";
+          ctx.fillText(inchStr, width - 8, sy);
         }
       }
     }
 
     // 3. TOP TIME TRACK (X-AXIS)
     if (showTopAxis) {
+      ctx.fillStyle = rulerBg;
       ctx.fillRect(mainLeft, 0, mainRight - mainLeft, topRulerHeight);
+      ctx.strokeStyle = rulerBorder;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.moveTo(0, Math.round(topRulerHeight) + 0.5);
-      ctx.lineTo(width, Math.round(topRulerHeight) + 0.5);
+      ctx.moveTo(mainLeft, Math.round(topRulerHeight) + 0.5);
+      ctx.lineTo(mainRight, Math.round(topRulerHeight) + 0.5);
       ctx.stroke();
 
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
       for (let col = startCol; col <= endCol; col++) {
         const sx = Math.round(pan.x + col * scaledBase) + 0.5;
         if (sx < mainLeft || sx > mainRight) continue;
@@ -583,7 +601,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const isIntermediate = col % 2 === 0;
         const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+        ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
         ctx.lineWidth = isMajor ? 1.2 : 0.8;
         ctx.beginPath();
         ctx.moveTo(sx, topRulerHeight);
@@ -594,21 +612,26 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           const inchIdx = col / subdivisions;
           const colStr = `${inchIdx}" [T+${col}]`;
 
-          ctx.fillStyle = "#2C2C2C";
+          ctx.fillStyle = charcoal;
           ctx.font = "bold 9px 'Courier New', Courier, monospace";
-          ctx.fillText(colStr, sx - 22, 18);
+          ctx.fillText(colStr, sx, topRulerHeight / 2);
         }
       }
     }
 
     // 4. BOTTOM TIME TRACK (X-AXIS)
     if (showBottomAxis) {
+      ctx.fillStyle = rulerBg; // ALWAYS explicitly set background!
       ctx.fillRect(mainLeft, mainBottom, mainRight - mainLeft, bottomRulerHeight);
+      ctx.strokeStyle = rulerBorder;
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.moveTo(0, Math.round(mainBottom) + 0.5);
-      ctx.lineTo(width, Math.round(mainBottom) + 0.5);
+      ctx.moveTo(mainLeft, Math.round(mainBottom) + 0.5);
+      ctx.lineTo(mainRight, Math.round(mainBottom) + 0.5);
       ctx.stroke();
 
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
       for (let col = startCol; col <= endCol; col++) {
         const sx = Math.round(pan.x + col * scaledBase) + 0.5;
         if (sx < mainLeft || sx > mainRight) continue;
@@ -617,7 +640,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const isIntermediate = col % 2 === 0;
         const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-        ctx.strokeStyle = isMajor ? "#2C2C2C" : "rgba(74, 120, 102, 0.60)";
+        ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
         ctx.lineWidth = isMajor ? 1.2 : 0.8;
         ctx.beginPath();
         ctx.moveTo(sx, mainBottom);
@@ -628,44 +651,59 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           const inchIdx = col / subdivisions;
           const colStr = `${inchIdx}" [T+${col}]`;
 
-          ctx.fillStyle = "#2C2C2C";
+          ctx.fillStyle = charcoal;
           ctx.font = "bold 9px 'Courier New', Courier, monospace";
-          ctx.fillText(colStr, sx - 22, height - 10);
+          ctx.fillText(colStr, sx, mainBottom + 19);
         }
       }
     }
 
-    // 5. CORNER JUNCTION BOXES (Rendered if both adjacent axes are visible)
+    // 5. CORNER JUNCTION BOXES (Rendered if both adjacent intersecting axes are visible)
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
     // Top-Left Junction
     if (showTopAxis && showLeftAxis) {
+      ctx.fillStyle = rulerBg;
       ctx.fillRect(0, 0, leftRulerWidth, topRulerHeight);
-      ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+      ctx.strokeStyle = rulerBorder;
+      ctx.strokeRect(0, 0, leftRulerWidth, topRulerHeight);
+      ctx.fillStyle = gannGreen;
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
-      ctx.fillText("K&E 8x8", 14, 19);
+      ctx.fillText("K&E 8x8", leftRulerWidth / 2, topRulerHeight / 2);
     }
 
     // Top-Right Junction
     if (showTopAxis && showRightAxis) {
+      ctx.fillStyle = rulerBg;
       ctx.fillRect(mainRight, 0, rightRulerWidth, topRulerHeight);
-      ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+      ctx.strokeStyle = rulerBorder;
+      ctx.strokeRect(mainRight, 0, rightRulerWidth, topRulerHeight);
+      ctx.fillStyle = gannGreen;
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
-      ctx.fillText("K&E 8x8", mainRight + 16, 19);
+      ctx.fillText("K&E 8x8", mainRight + rightRulerWidth / 2, topRulerHeight / 2);
     }
 
     // Bottom-Left Junction
     if (showBottomAxis && showLeftAxis) {
+      ctx.fillStyle = rulerBg;
       ctx.fillRect(0, mainBottom, leftRulerWidth, bottomRulerHeight);
-      ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+      ctx.strokeStyle = rulerBorder;
+      ctx.strokeRect(0, mainBottom, leftRulerWidth, bottomRulerHeight);
+      ctx.fillStyle = gannGreen;
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
-      ctx.fillText("K&E 8x8", 14, height - 11);
+      ctx.fillText("K&E 8x8", leftRulerWidth / 2, mainBottom + bottomRulerHeight / 2);
     }
 
     // Bottom-Right Junction
     if (showBottomAxis && showRightAxis) {
+      ctx.fillStyle = rulerBg;
       ctx.fillRect(mainRight, mainBottom, rightRulerWidth, bottomRulerHeight);
-      ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
+      ctx.strokeStyle = rulerBorder;
+      ctx.strokeRect(mainRight, mainBottom, rightRulerWidth, bottomRulerHeight);
+      ctx.fillStyle = gannGreen;
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
-      ctx.fillText("K&E 8x8", mainRight + 16, height - 11);
+      ctx.fillText("K&E 8x8", mainRight + rightRulerWidth / 2, mainBottom + bottomRulerHeight / 2);
     }
 
     ctx.restore();
