@@ -549,6 +549,51 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [render]);
 
   /**
+   * KEYBOARD ARROW KEY NAVIGATION:
+   * Mathematically aligned to K&E Grid (48px / 96px majorUnit increments)
+   */
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is focusing an input field
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      // Step Math: 48px (1/2 inch = 4 minor units), Shift+Arrow = 96px (1 full inch = 8 minor units)
+      const stepDistance = e.shiftKey ? majorUnit : majorUnit / 2;
+
+      switch (e.key) {
+        case "ArrowUp":
+          e.preventDefault();
+          panBy(0, stepDistance);
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          panBy(0, -stepDistance);
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          panBy(stepDistance, 0);
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          panBy(-stepDistance, 0);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [panBy, majorUnit]);
+
+  /**
    * MOUSE HANDLERS: Infinite Panning & Cursor-Centered Zooming
    */
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {

@@ -123,7 +123,7 @@ export const CoordinateOverlay: React.FC = () => {
           justifyContent: "space-between",
         }}
       >
-        <span>Left Drag: 2D Pan</span>
+        <span>Left Drag / Arrow Keys: Pan (Shift: Fast)</span>
         <span>Scroll: 1:1 Isotropic Zoom</span>
       </div>
     </div>

@@ -194,7 +194,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       <div><span style="color:rgba(74,120,102,0.9)">Patterns Flagged:</span> <strong style="color:#C62828" id="hudPatterns">7 patterns</strong></div>
     </div>
     <div class="hud-footer">
-      <span>Left Drag: 2D Cartesian Pan</span>
+      <span>Left Drag / Arrow Keys: Pan Grid (Shift: Fast)</span>
       <span>Scroll: 1:1 Isotropic Zoom</span>
     </div>
   </div>
@@ -731,6 +731,43 @@ HTML_CONTENT = """<!DOCTYPE html>
 
       updateHUD();
       requestRender();
+    }, { passive: false });
+
+    // Keyboard Arrow Key Navigation (Mathematically Aligned to K&E Grid)
+    window.addEventListener("keydown", (e) => {
+      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+
+      // Step Math: 48px (1/2 inch = 4 minor units), Shift+Arrow = 96px (1 full inch = 8 minor units)
+      const stepDistance = e.shiftKey ? state.majorUnit : state.majorUnit / 2;
+
+      switch (e.key) {
+        case "ArrowUp":
+          e.preventDefault();
+          state.pan.y += stepDistance;
+          updateHUD();
+          requestRender();
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          state.pan.y -= stepDistance;
+          updateHUD();
+          requestRender();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          state.pan.x += stepDistance;
+          updateHUD();
+          requestRender();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          state.pan.x -= stepDistance;
+          updateHUD();
+          requestRender();
+          break;
+        default:
+          break;
+      }
     }, { passive: false });
 
     // Toolbar Handlers
