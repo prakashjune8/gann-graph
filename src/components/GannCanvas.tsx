@@ -24,13 +24,21 @@ interface GannCanvasProps {
   showGannRay45?: boolean;
 }
 
+interface DirtyRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export const GannCanvas: React.FC<GannCanvasProps> = ({
   showGannRay45 = true,
 }) => {
-  // Multi-Canvas 3-Tier Layer Refs
-  const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);   // Layer 1 (z-index: 10)
-  const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);  // Layer 2 (z-index: 20)
-  const uiCanvasRef = useRef<HTMLCanvasElement | null>(null);     // Layer 3 (z-index: 30)
+  // Multi-Canvas 4-Tier Layer Refs (Audits 4.1, 4.2 & 4.3 Architecture)
+  const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);       // Layer 1 (z-index: 10): Grid Pattern & Zero Axes
+  const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);      // Layer 2 (z-index: 20): Candlesticks, Volume, Swings
+  const rulerCanvasRef = useRef<HTMLCanvasElement | null>(null);      // Layer 3 (z-index: 25): Static 4-Sided Axis Tracks & Junctions
+  const crosshairCanvasRef = useRef<HTMLCanvasElement | null>(null);  // Layer 4 (z-index: 30): Precision Crosshair (Dirty-Rect)
 
   // Subscribe to Zustand state
   const {
@@ -65,13 +73,24 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
+
+  // Animation Frame Schedulers
   const animFrameGridRef = useRef<number | null>(null);
   const animFrameChartRef = useRef<number | null>(null);
-  const animFrameUIRef = useRef<number | null>(null);
+  const animFrameRulerRef = useRef<number | null>(null);
+  const animFrameCrosshairRef = useRef<number | null>(null);
 
   // Master Offscreen Canvas Pattern Tile for K&E 8x8 Grid (Audit 4.1 Optimization)
   const tileCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cachedZoomRef = useRef<number>(-1);
+
+  // Dirty-Rectangle Tracker for Crosshair Layer (Audit 4.2 & 4.3 Optimization)
+  const prevDirtyRectsRef = useRef<DirtyRect[] | null>(null);
+  const prevPanZoomRef = useRef<{ panX: number; panY: number; zoom: number }>({
+    panX: pan.x,
+    panY: pan.y,
+    zoom,
+  });
 
   /**
    * Generates or reuses an Offscreen Master Tile for the K&E 8x8 Grid.
@@ -85,7 +104,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         tileCanvasRef.current = tile;
       }
 
-      // Return cached master tile if zoom has not changed
       if (cachedZoomRef.current === currentZoom && tile.width > 0) {
         return tile;
       }
@@ -94,7 +112,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const scaledMajor = majorUnit * currentZoom;
       const scaledMinor = baseUnit * currentZoom;
 
-      // Set pixel dimensions to exactly 1 Major Unit
       const tw = Math.max(8, Math.round(scaledMajor));
       const th = Math.max(8, Math.round(scaledMajor));
       tile.width = tw;
@@ -113,16 +130,14 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       tCtx.beginPath();
       for (let i = 1; i < subdivisions; i++) {
         const pos = Math.round(i * scaledMinor) + 0.5;
-        // Vertical interior line
         tCtx.moveTo(pos, 0);
         tCtx.lineTo(pos, th);
-        // Horizontal interior line
         tCtx.moveTo(0, pos);
         tCtx.lineTo(tw, pos);
       }
       tCtx.stroke();
 
-      // 3. Major Grid Lines (1-inch outer grid line at top and left edges)
+      // 3. Major Grid Lines (1-inch outer grid lines)
       tCtx.lineWidth = 1.25;
       tCtx.strokeStyle = DRAFTING_THEME.majorGridLine;
       tCtx.beginPath();
@@ -140,7 +155,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   /**
    * LAYER 1 (z-index: 10): Background & K&E 8x8 Grid
    * Hardware-Accelerated Pattern Blitting (Audit 4.1 Resolution)
-   * Replaces 1,400+ procedural line loops with a single hardware texture blit.
+   * Redraws ONLY on pan/zoom.
    */
   const renderGrid = useCallback(() => {
     const canvas = gridCanvasRef.current;
@@ -269,7 +284,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const mainRight = width - rightRulerWidth;
     const mainBottom = height - bottomRulerHeight;
 
-    // 5. Volume Histogram Bars
+    // 1. Volume Histogram Bars
     if (showVolumeBars && candles.length > 0) {
       ctx.save();
       const maxVol = Math.max(...candles.map((c) => c.volume), 1);
@@ -308,7 +323,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // 6. Japanese Candlesticks
+    // 2. Japanese Candlesticks
     if (
       (chartMode === "CANDLESTICK" || chartMode === "HYBRID_CANDLE_SWING") &&
       candles.length > 0
@@ -398,7 +413,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // 7. Western OHLC Bar Graphs
+    // 3. Western OHLC Bar Graphs
     if (chartMode === "OHLC_BAR" && candles.length > 0) {
       ctx.save();
       const tickWidth = Math.max(3, scaledBase * 0.42);
@@ -435,7 +450,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // 8. Gann Right-Angle Swing Steps
+    // 4. Gann Right-Angle Swing Steps
     if (
       (chartMode === "SWING_STEP" || chartMode === "HYBRID_CANDLE_SWING") &&
       swingPoints.length > 0
@@ -508,11 +523,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   ]);
 
   /**
-   * LAYER 3 (z-index: 30): Precision Crosshair, HUD, and Four-Sided Axis Rulers
-   * Decoupled ultra-fast rendering on grid-snapped cursor updates.
+   * LAYER 3 (z-index: 25): Static 4-Sided Axis Ruler Tracks & Corner Junctions
+   * Completely isolated from mousemove events (Audits 4.2 & 4.3).
+   * Redraws ONLY on pan/zoom or axis toggle operations.
    */
-  const renderUI = useCallback(() => {
-    const canvas = uiCanvasRef.current;
+  const renderRulers = useCallback(() => {
+    const canvas = rulerCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -548,80 +564,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const mainTop = topRulerHeight;
     const mainBottom = height - bottomRulerHeight;
 
-    const snapScreen = worldToScreen(cursorGrid.col * baseUnit, cursorGrid.row * baseUnit);
-    const cx = Math.round(snapScreen.x) + 0.5;
-    const cy = Math.round(snapScreen.y) + 0.5;
-    const snappedPrice = basePrice + cursorGrid.row * pricePerUnit;
-
-    // 8.5 FULL-SCREEN RIGID SNAPPING PRECISION CROSSHAIR
-    if (isHovered && showCrosshair) {
-      ctx.save();
-      if (cx >= -50 && cx <= width + 50 && cy >= -50 && cy <= height + 50) {
-        ctx.lineWidth = 1.0;
-        ctx.strokeStyle = "rgba(55, 71, 79, 0.85)";
-        ctx.setLineDash([4, 4]);
-
-        ctx.beginPath();
-        ctx.moveTo(cx, 0);
-        ctx.lineTo(cx, height);
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(0, cy);
-        ctx.lineTo(width, cy);
-        ctx.stroke();
-
-        // Precision Drafting Reticle Target
-        ctx.setLineDash([]);
-        ctx.lineWidth = 1.2;
-        ctx.strokeStyle = "#1E2A24";
-        ctx.fillStyle = "rgba(46, 125, 50, 0.90)";
-        ctx.beginPath();
-        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        const gap = 5;
-        const arm = 10;
-        ctx.beginPath();
-        ctx.moveTo(cx - arm, cy); ctx.lineTo(cx - gap, cy);
-        ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + arm, cy);
-        ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy - gap);
-        ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + arm);
-        ctx.stroke();
-
-        // Snapped Coordinate HUD Badge
-        const inchX = (cursorGrid.col / subdivisions).toFixed(2);
-        const inchY = (cursorGrid.row / subdivisions).toFixed(2);
-        const badgeText = `[${cursorGrid.col}, ${cursorGrid.row}] (${inchX}", ${inchY}") \u20B9${snappedPrice.toLocaleString("en-IN")}`;
-
-        ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        const txtW = ctx.measureText(badgeText).width;
-        const bW = txtW + 10;
-        const bH = 15;
-        let bX = cx + 8;
-        let bY = cy - 20;
-
-        if (bX + bW > width - 90) bX = cx - bW - 8;
-        if (bY < 35) bY = cy + 18;
-
-        ctx.fillStyle = "rgba(247, 246, 240, 0.94)";
-        ctx.strokeStyle = "rgba(74, 120, 102, 0.55)";
-        ctx.lineWidth = 1;
-        if (ctx.roundRect) ctx.roundRect(bX, bY - 11, bW, bH, 3);
-        else ctx.rect(bX, bY - 11, bW, bH);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = "#2C2C2C";
-        ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText(badgeText, bX + 5, bY - 3.5);
-      }
-      ctx.restore();
-    }
-
-    // 9. FOUR-SIDED FIXED AXIS RULER TRACKS & CORNER JUNCTION BOXES
     ctx.save();
     const rulerBg = isAxisTransparent
       ? "rgba(247, 246, 240, 0.75)"
@@ -673,16 +615,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           ctx.fillText(inchStr, leftRulerWidth - 10, sy);
         }
       }
-
-      if (isHovered && showCrosshair && cy >= mainTop && cy <= mainBottom) {
-        const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
-        ctx.fillStyle = "#1B5E20";
-        ctx.fillRect(0, cy - 9, leftRulerWidth, 18);
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.textAlign = "center";
-        ctx.fillText(pStr, leftRulerWidth / 2, cy);
-      }
     }
 
     // 2. RIGHT PRICE TRACK (Y-AXIS)
@@ -728,16 +660,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           ctx.fillText(inchStr, width - 8, sy);
         }
       }
-
-      if (isHovered && showCrosshair && cy >= mainTop && cy <= mainBottom) {
-        const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
-        ctx.fillStyle = "#1B5E20";
-        ctx.fillRect(mainRight, cy - 9, rightRulerWidth, 18);
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.textAlign = "center";
-        ctx.fillText(pStr, mainRight + rightRulerWidth / 2, cy);
-      }
     }
 
     // 3. TOP TIME TRACK (X-AXIS)
@@ -777,17 +699,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           ctx.fillText(colStr, sx, topRulerHeight / 2);
         }
       }
-
-      if (isHovered && showCrosshair && cx >= mainLeft && cx <= mainRight) {
-        const tStr = `T+${cursorGrid.col}`;
-        const tagW = 48;
-        ctx.fillStyle = "#1B5E20";
-        ctx.fillRect(cx - tagW / 2, 0, tagW, topRulerHeight);
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.textAlign = "center";
-        ctx.fillText(tStr, cx, topRulerHeight / 2);
-      }
     }
 
     // 4. BOTTOM TIME TRACK (X-AXIS)
@@ -826,17 +737,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           ctx.font = "bold 9px 'Courier New', Courier, monospace";
           ctx.fillText(colStr, sx, mainBottom + 19);
         }
-      }
-
-      if (isHovered && showCrosshair && cx >= mainLeft && cx <= mainRight) {
-        const tStr = `T+${cursorGrid.col}`;
-        const tagW = 48;
-        ctx.fillStyle = "#1B5E20";
-        ctx.fillRect(cx - tagW / 2, mainBottom, tagW, bottomRulerHeight);
-        ctx.fillStyle = "#FFFFFF";
-        ctx.font = "bold 9px 'Courier New', Courier, monospace";
-        ctx.textAlign = "center";
-        ctx.fillText(tStr, cx, mainBottom + 19);
       }
     }
 
@@ -895,12 +795,213 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     showBottomAxis,
     showLeftAxis,
     showRightAxis,
-    showCrosshair,
-    isHovered,
-    cursorGrid,
     basePrice,
     pricePerUnit,
     screenToWorld,
+  ]);
+
+  /**
+   * LAYER 4 (z-index: 30): Precision Crosshair & Dirty-Rect Reticle
+   * Audits 4.2 & 4.3 Resolution: ZERO full-frame clearRect on mouse moves.
+   * Erases ONLY the exact bounding rectangles of the previous crosshair lines & badges.
+   */
+  const renderCrosshair = useCallback(() => {
+    const canvas = crosshairCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.width / dpr;
+    const height = canvas.height / dpr;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // If pan or zoom changed, reset dirty tracking and clear full frame once
+    const panZoomChanged =
+      prevPanZoomRef.current.panX !== pan.x ||
+      prevPanZoomRef.current.panY !== pan.y ||
+      prevPanZoomRef.current.zoom !== zoom;
+
+    if (panZoomChanged) {
+      prevPanZoomRef.current = { panX: pan.x, panY: pan.y, zoom };
+      ctx.clearRect(0, 0, width, height);
+      prevDirtyRectsRef.current = null;
+    }
+
+    // 1. Erase previous microscopic dirty rectangles (if any)
+    if (prevDirtyRectsRef.current && prevDirtyRectsRef.current.length > 0) {
+      for (const r of prevDirtyRectsRef.current) {
+        ctx.clearRect(r.x, r.y, r.w, r.h);
+      }
+      prevDirtyRectsRef.current = null;
+    }
+
+    // If crosshair is inactive or cursor is outside, exit cleanly
+    if (!isHovered || !showCrosshair) {
+      return;
+    }
+
+    const snapScreen = worldToScreen(cursorGrid.col * baseUnit, cursorGrid.row * baseUnit);
+    const cx = Math.round(snapScreen.x) + 0.5;
+    const cy = Math.round(snapScreen.y) + 0.5;
+
+    // Boundary check
+    if (cx < -50 || cx > width + 50 || cy < -50 || cy > height + 50) {
+      return;
+    }
+
+    const snappedPrice = basePrice + cursorGrid.row * pricePerUnit;
+
+    const leftRulerWidth = showLeftAxis ? 84 : 0;
+    const rightRulerWidth = showRightAxis ? 88 : 0;
+    const topRulerHeight = showTopAxis ? 30 : 0;
+    const bottomRulerHeight = showBottomAxis ? 32 : 0;
+
+    const mainLeft = leftRulerWidth;
+    const mainRight = width - rightRulerWidth;
+    const mainTop = topRulerHeight;
+    const mainBottom = height - bottomRulerHeight;
+
+    const newDirtyRects: DirtyRect[] = [];
+
+    ctx.save();
+
+    // 2. Render Full-Screen Snapped Dashed Lines
+    ctx.lineWidth = 1.0;
+    ctx.strokeStyle = "rgba(55, 71, 79, 0.85)";
+    ctx.setLineDash([4, 4]);
+
+    ctx.beginPath();
+    ctx.moveTo(cx, 0);
+    ctx.lineTo(cx, height);
+    ctx.stroke();
+    newDirtyRects.push({ x: Math.floor(cx) - 2, y: 0, w: 5, h: height });
+
+    ctx.beginPath();
+    ctx.moveTo(0, cy);
+    ctx.lineTo(width, cy);
+    ctx.stroke();
+    newDirtyRects.push({ x: 0, y: Math.floor(cy) - 2, w: width, h: 5 });
+
+    // 3. Precision Drafting Reticle Target (Circle + 4 Brackets)
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = "#1E2A24";
+    ctx.fillStyle = "rgba(46, 125, 50, 0.90)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    const gap = 5;
+    const arm = 10;
+    ctx.beginPath();
+    ctx.moveTo(cx - arm, cy); ctx.lineTo(cx - gap, cy);
+    ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + arm, cy);
+    ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy - gap);
+    ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + arm);
+    ctx.stroke();
+    newDirtyRects.push({ x: Math.floor(cx) - 16, y: Math.floor(cy) - 16, w: 32, h: 32 });
+
+    // 4. Snapped Coordinate HUD Floating Badge
+    const inchX = (cursorGrid.col / subdivisions).toFixed(2);
+    const inchY = (cursorGrid.row / subdivisions).toFixed(2);
+    const badgeText = `[${cursorGrid.col}, ${cursorGrid.row}] (${inchX}", ${inchY}") \u20B9${snappedPrice.toLocaleString("en-IN")}`;
+
+    ctx.font = "bold 9px 'Courier New', Courier, monospace";
+    const txtW = ctx.measureText(badgeText).width;
+    const bW = txtW + 10;
+    const bH = 15;
+    let bX = cx + 8;
+    let bY = cy - 20;
+
+    if (bX + bW > width - 90) bX = cx - bW - 8;
+    if (bY < 35) bY = cy + 18;
+
+    ctx.fillStyle = "rgba(247, 246, 240, 0.94)";
+    ctx.strokeStyle = "rgba(74, 120, 102, 0.55)";
+    ctx.lineWidth = 1;
+    if (ctx.roundRect) ctx.roundRect(bX, bY - 11, bW, bH, 3);
+    else ctx.rect(bX, bY - 11, bW, bH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#2C2C2C";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(badgeText, bX + 5, bY - 3.5);
+    newDirtyRects.push({ x: bX - 3, y: bY - 14, w: bW + 6, h: bH + 6 });
+
+    // 5. Live Snapped Indicators on Axis Tracks
+    // Left Price Indicator
+    if (showLeftAxis && cy >= mainTop && cy <= mainBottom) {
+      const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
+      ctx.fillStyle = "#1B5E20";
+      ctx.fillRect(0, cy - 9, leftRulerWidth, 18);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 9px 'Courier New', Courier, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(pStr, leftRulerWidth / 2, cy);
+      newDirtyRects.push({ x: 0, y: Math.floor(cy) - 11, w: leftRulerWidth + 1, h: 22 });
+    }
+
+    // Right Price Indicator
+    if (showRightAxis && cy >= mainTop && cy <= mainBottom) {
+      const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
+      ctx.fillStyle = "#1B5E20";
+      ctx.fillRect(mainRight, cy - 9, rightRulerWidth, 18);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 9px 'Courier New', Courier, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(pStr, mainRight + rightRulerWidth / 2, cy);
+      newDirtyRects.push({ x: Math.floor(mainRight) - 1, y: Math.floor(cy) - 11, w: rightRulerWidth + 2, h: 22 });
+    }
+
+    // Top Time Indicator
+    if (showTopAxis && cx >= mainLeft && cx <= mainRight) {
+      const tStr = `T+${cursorGrid.col}`;
+      const tagW = 48;
+      ctx.fillStyle = "#1B5E20";
+      ctx.fillRect(cx - tagW / 2, 0, tagW, topRulerHeight);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 9px 'Courier New', Courier, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(tStr, cx, topRulerHeight / 2);
+      newDirtyRects.push({ x: Math.floor(cx - tagW / 2) - 2, y: 0, w: tagW + 4, h: topRulerHeight + 1 });
+    }
+
+    // Bottom Time Indicator
+    if (showBottomAxis && cx >= mainLeft && cx <= mainRight) {
+      const tStr = `T+${cursorGrid.col}`;
+      const tagW = 48;
+      ctx.fillStyle = "#1B5E20";
+      ctx.fillRect(cx - tagW / 2, mainBottom, tagW, bottomRulerHeight);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 9px 'Courier New', Courier, monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(tStr, cx, mainBottom + 19);
+      newDirtyRects.push({ x: Math.floor(cx - tagW / 2) - 2, y: Math.floor(mainBottom) - 1, w: tagW + 4, h: bottomRulerHeight + 2 });
+    }
+
+    ctx.restore();
+
+    // Cache current bounding boxes for microscopic erasure on next tick
+    prevDirtyRectsRef.current = newDirtyRects;
+  }, [
+    cursorGrid,
+    isHovered,
+    showCrosshair,
+    pan,
+    zoom,
+    baseUnit,
+    subdivisions,
+    basePrice,
+    pricePerUnit,
+    showTopAxis,
+    showBottomAxis,
+    showLeftAxis,
+    showRightAxis,
     worldToScreen,
   ]);
 
@@ -922,21 +1023,30 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [renderChart]);
 
   useEffect(() => {
-    if (animFrameUIRef.current) cancelAnimationFrame(animFrameUIRef.current);
-    animFrameUIRef.current = requestAnimationFrame(renderUI);
+    if (animFrameRulerRef.current) cancelAnimationFrame(animFrameRulerRef.current);
+    animFrameRulerRef.current = requestAnimationFrame(renderRulers);
     return () => {
-      if (animFrameUIRef.current) cancelAnimationFrame(animFrameUIRef.current);
+      if (animFrameRulerRef.current) cancelAnimationFrame(animFrameRulerRef.current);
     };
-  }, [renderUI]);
+  }, [renderRulers]);
 
-  // Window resize listener synchronizes all 3 canvas buffers
+  useEffect(() => {
+    if (animFrameCrosshairRef.current) cancelAnimationFrame(animFrameCrosshairRef.current);
+    animFrameCrosshairRef.current = requestAnimationFrame(renderCrosshair);
+    return () => {
+      if (animFrameCrosshairRef.current) cancelAnimationFrame(animFrameCrosshairRef.current);
+    };
+  }, [renderCrosshair]);
+
+  // Window resize listener synchronizes all 4 canvas buffers
   useEffect(() => {
     const handleResize = () => {
       const dpr = window.devicePixelRatio || 1;
       const gCanvas = gridCanvasRef.current;
       const cCanvas = chartCanvasRef.current;
-      const uCanvas = uiCanvasRef.current;
-      if (!gCanvas || !cCanvas || !uCanvas) return;
+      const rCanvas = rulerCanvasRef.current;
+      const uCanvas = crosshairCanvasRef.current;
+      if (!gCanvas || !cCanvas || !rCanvas || !uCanvas) return;
 
       const rect = gCanvas.getBoundingClientRect();
       const w = Math.round(rect.width * dpr);
@@ -944,11 +1054,15 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       gCanvas.width = w; gCanvas.height = h;
       cCanvas.width = w; cCanvas.height = h;
+      rCanvas.width = w; rCanvas.height = h;
       uCanvas.width = w; uCanvas.height = h;
+
+      prevDirtyRectsRef.current = null;
 
       renderGrid();
       renderChart();
-      renderUI();
+      renderRulers();
+      renderCrosshair();
     };
 
     handleResize();
@@ -956,7 +1070,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [renderGrid, renderChart, renderUI]);
+  }, [renderGrid, renderChart, renderRulers, renderCrosshair]);
 
   /**
    * KEYBOARD ARROW KEY NAVIGATION
@@ -1000,7 +1114,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [panBy, majorUnit]);
 
   /**
-   * MOUSE HANDLERS (Interacting on Layer 3 uiCanvas)
+   * MOUSE HANDLERS (Interacting on Layer 4 crosshairCanvas)
    */
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.button === 0 || e.button === 1) {
@@ -1010,7 +1124,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = uiCanvasRef.current;
+    const canvas = crosshairCanvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -1042,7 +1156,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const canvas = uiCanvasRef.current;
+    const canvas = crosshairCanvasRef.current;
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
@@ -1064,7 +1178,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         cursor: isDraggingRef.current ? "grabbing" : "crosshair",
       }}
     >
-      {/* LAYER 1 (z-index: 10): Background & K&E 8x8 Grid */}
+      {/* LAYER 1 (z-index: 10): Background & K&E 8x8 Grid (Hardware Tiled) */}
       <canvas
         ref={gridCanvasRef}
         style={{
@@ -1090,9 +1204,22 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           pointerEvents: "none",
         }}
       />
-      {/* LAYER 3 (z-index: 30): Precision Crosshair, HUD, and 4-Sided Axis Rulers */}
+      {/* LAYER 3 (z-index: 25): Fixed Four-Sided Axis Rulers & Corner Junctions (Static on mousemove) */}
       <canvas
-        ref={uiCanvasRef}
+        ref={rulerCanvasRef}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          zIndex: 25,
+          pointerEvents: "none",
+        }}
+      />
+      {/* LAYER 4 (z-index: 30): Precision Crosshair & Reticle (Microscopic Dirty-Rect Updates) */}
+      <canvas
+        ref={crosshairCanvasRef}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
