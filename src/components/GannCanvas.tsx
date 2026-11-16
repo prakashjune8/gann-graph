@@ -69,9 +69,78 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const animFrameChartRef = useRef<number | null>(null);
   const animFrameUIRef = useRef<number | null>(null);
 
+  // Master Offscreen Canvas Pattern Tile for K&E 8x8 Grid (Audit 4.1 Optimization)
+  const tileCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cachedZoomRef = useRef<number>(-1);
+
+  /**
+   * Generates or reuses an Offscreen Master Tile for the K&E 8x8 Grid.
+   * Crucial: Re-renders ONLY when zoom scale changes, NOT on pan.
+   */
+  const getGridTile = useCallback(
+    (currentZoom: number) => {
+      let tile = tileCanvasRef.current;
+      if (!tile) {
+        tile = document.createElement("canvas");
+        tileCanvasRef.current = tile;
+      }
+
+      // Return cached master tile if zoom has not changed
+      if (cachedZoomRef.current === currentZoom && tile.width > 0) {
+        return tile;
+      }
+
+      cachedZoomRef.current = currentZoom;
+      const scaledMajor = majorUnit * currentZoom;
+      const scaledMinor = baseUnit * currentZoom;
+
+      // Set pixel dimensions to exactly 1 Major Unit
+      const tw = Math.max(8, Math.round(scaledMajor));
+      const th = Math.max(8, Math.round(scaledMajor));
+      tile.width = tw;
+      tile.height = th;
+
+      const tCtx = tile.getContext("2d", { alpha: false });
+      if (!tCtx) return tile;
+
+      // 1. Vintage Paper Background
+      tCtx.fillStyle = DRAFTING_THEME.paperBackground;
+      tCtx.fillRect(0, 0, tw, th);
+
+      // 2. Minor Grid Lines (interior 7 lines at 1/8th inch intervals)
+      tCtx.lineWidth = 1;
+      tCtx.strokeStyle = DRAFTING_THEME.minorGridLine;
+      tCtx.beginPath();
+      for (let i = 1; i < subdivisions; i++) {
+        const pos = Math.round(i * scaledMinor) + 0.5;
+        // Vertical interior line
+        tCtx.moveTo(pos, 0);
+        tCtx.lineTo(pos, th);
+        // Horizontal interior line
+        tCtx.moveTo(0, pos);
+        tCtx.lineTo(tw, pos);
+      }
+      tCtx.stroke();
+
+      // 3. Major Grid Lines (1-inch outer grid line at top and left edges)
+      tCtx.lineWidth = 1.25;
+      tCtx.strokeStyle = DRAFTING_THEME.majorGridLine;
+      tCtx.beginPath();
+      tCtx.moveTo(0.5, 0);
+      tCtx.lineTo(0.5, th);
+      tCtx.moveTo(0, 0.5);
+      tCtx.lineTo(tw, 0.5);
+      tCtx.stroke();
+
+      return tile;
+    },
+    [majorUnit, baseUnit, subdivisions]
+  );
+
   /**
    * LAYER 1 (z-index: 10): Background & K&E 8x8 Grid
-   * Strictly redraws only on pan/zoom.
+   * Hardware-Accelerated Pattern Blitting (Audit 4.1 Resolution)
+   * Replaces 1,400+ procedural line loops with a single hardware texture blit.
    */
   const renderGrid = useCallback(() => {
     const canvas = gridCanvasRef.current;
@@ -84,64 +153,29 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const height = canvas.height / dpr;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = DRAFTING_THEME.paperBackground;
-    ctx.fillRect(0, 0, width, height);
 
-    const scaledBase = baseUnit * zoom;
-    const topLeftWorld = screenToWorld(0, 0);
-    const bottomRightWorld = screenToWorld(width, height);
-
-    const minWorldX = Math.min(topLeftWorld.x, bottomRightWorld.x);
-    const maxWorldX = Math.max(topLeftWorld.x, bottomRightWorld.x);
-    const minWorldY = Math.min(topLeftWorld.y, bottomRightWorld.y);
-    const maxWorldY = Math.max(topLeftWorld.y, bottomRightWorld.y);
-
-    const startCol = Math.floor(minWorldX / baseUnit) - 1;
-    const endCol = Math.ceil(maxWorldX / baseUnit) + 1;
-    const startRow = Math.floor(minWorldY / baseUnit) - 1;
-    const endRow = Math.ceil(maxWorldY / baseUnit) + 1;
-
-    // 1. Minor Grid Lines (1/8th inch, baseUnit = 12px)
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = DRAFTING_THEME.minorGridLine;
-    ctx.beginPath();
-    for (let col = startCol; col <= endCol; col++) {
-      if (col % subdivisions !== 0) {
-        const screenX = Math.round(pan.x + col * scaledBase) + 0.5;
-        ctx.moveTo(screenX, 0);
-        ctx.lineTo(screenX, height);
+    // 1. Hardware Pattern Blit via Offscreen Master Tile
+    const tile = getGridTile(zoom);
+    const pattern = ctx.createPattern(tile, "repeat");
+    if (pattern) {
+      if (pattern.setTransform) {
+        const matrix = new DOMMatrix().translate(pan.x, pan.y);
+        pattern.setTransform(matrix);
+        ctx.fillStyle = pattern;
+        ctx.fillRect(0, 0, width, height);
+      } else {
+        ctx.save();
+        ctx.translate(pan.x, pan.y);
+        ctx.fillStyle = pattern;
+        ctx.fillRect(-pan.x, -pan.y, width, height);
+        ctx.restore();
       }
+    } else {
+      ctx.fillStyle = DRAFTING_THEME.paperBackground;
+      ctx.fillRect(0, 0, width, height);
     }
-    for (let row = startRow; row <= endRow; row++) {
-      if (row % subdivisions !== 0) {
-        const screenY = Math.round(pan.y - row * scaledBase) + 0.5;
-        ctx.moveTo(0, screenY);
-        ctx.lineTo(width, screenY);
-      }
-    }
-    ctx.stroke();
 
-    // 2. Major Grid Lines (1 inch, majorUnit = 96px, 8x8 blocks)
-    ctx.lineWidth = 1.25;
-    ctx.strokeStyle = DRAFTING_THEME.majorGridLine;
-    ctx.beginPath();
-    for (let col = startCol; col <= endCol; col++) {
-      if (col % subdivisions === 0 && col !== 0) {
-        const screenX = Math.round(pan.x + col * scaledBase) + 0.5;
-        ctx.moveTo(screenX, 0);
-        ctx.lineTo(screenX, height);
-      }
-    }
-    for (let row = startRow; row <= endRow; row++) {
-      if (row % subdivisions === 0 && row !== 0) {
-        const screenY = Math.round(pan.y - row * scaledBase) + 0.5;
-        ctx.moveTo(0, screenY);
-        ctx.lineTo(width, screenY);
-      }
-    }
-    ctx.stroke();
-
-    // 3. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price)
+    // 2. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price)
     ctx.lineWidth = 2.0;
     ctx.strokeStyle = DRAFTING_THEME.axisLine;
     ctx.beginPath();
@@ -169,7 +203,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.fillText(`0,0 (BASE \u20B9${basePrice})`, axisX + 7, axisY - 6);
     }
 
-    // 4. Gann 1x1 (45-Degree) True Diagonal Ray
+    // 3. Gann 1x1 (45-Degree) True Diagonal Ray
     if (showGannRay45) {
       ctx.save();
       ctx.lineWidth = 1.5;
@@ -202,13 +236,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [
     pan,
     zoom,
-    baseUnit,
-    majorUnit,
-    subdivisions,
     basePrice,
     showGannRay45,
-    screenToWorld,
     worldToScreen,
+    getGridTile,
+    baseUnit,
   ]);
 
   /**
