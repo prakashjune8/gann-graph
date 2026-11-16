@@ -26,10 +26,12 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     showBottomAxis,
     showLeftAxis,
     showRightAxis,
+    isAxisTransparent,
     toggleTopAxis,
     toggleBottomAxis,
     toggleLeftAxis,
     toggleRightAxis,
+    toggleAxisTransparency,
     loadSampleDataset,
     clearAllData,
     candles,
@@ -225,6 +227,21 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           title="Toggle Right Price Axis Track"
         >
           {showRightAxis ? "🔲 Right" : "◻ Right"}
+        </button>
+
+        <button
+          onClick={toggleAxisTransparency}
+          style={{
+            ...buttonStyle,
+            padding: "4px 8px",
+            backgroundColor: isAxisTransparent ? "#E8F5E9" : "transparent",
+            borderColor: isAxisTransparent ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+            color: isAxisTransparent ? "#1B5E20" : "#555",
+            fontWeight: isAxisTransparent ? "bold" : "normal",
+          }}
+          title="Toggle Axis Background Transparency (Solid #F7F6F0 vs Semi-Transparent rgba(247, 246, 240, 0.75))"
+        >
+          {isAxisTransparent ? "🌓 Transparent Axes" : "🌔 Solid Axes"}
         </button>
       </div>
 

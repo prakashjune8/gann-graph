@@ -172,6 +172,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     <button class="btn active" id="btnAxisBtm" onclick="toggleAxis('btm')" title="Toggle Bottom Time Axis Track">🔲 Btm</button>
     <button class="btn active" id="btnAxisLeft" onclick="toggleAxis('left')" title="Toggle Left Price Axis Track">🔲 Left</button>
     <button class="btn active" id="btnAxisRight" onclick="toggleAxis('right')" title="Toggle Right Price Axis Track">🔲 Right</button>
+    <button class="btn" id="btnAxisTransp" onclick="toggleAxisTransp()" title="Toggle Axis Background Transparency (Solid #F7F6F0 vs Semi-Transparent 75%)">🌓 Transparent Axes</button>
 
     <div class="divider"></div>
 
@@ -243,6 +244,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       showBottomAxis: true,
       showLeftAxis: true,
       showRightAxis: true,
+      isAxisTransparent: false,
       basePrice: 21500,
       pricePerUnit: 25.0,
       cursor: { x: 0, y: 0, worldX: 0, worldY: 0, col: 0, row: 0 },
@@ -682,7 +684,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       // Rendered on top so panning grid slides underneath seamlessly.
       // -------------------------------------------------------------
       ctx.save();
-      const rulerBg = THEME.paperBackground; // Solid #F7F6F0
+      const rulerBg = state.isAxisTransparent ? "rgba(247, 246, 240, 0.75)" : THEME.paperBackground; // Solid #F7F6F0
       const rulerBorder = "rgba(74, 120, 102, 0.50)";
       const charcoal = "#2C2C2C";
       const gannGreen = "rgba(74, 120, 102, 0.85)";
@@ -1063,6 +1065,16 @@ HTML_CONTENT = """<!DOCTYPE html>
       }
 
       updateLayoutPositions();
+      requestRender();
+    }
+
+    function toggleAxisTransp() {
+      state.isAxisTransparent = !state.isAxisTransparent;
+      const btn = document.getElementById("btnAxisTransp");
+      if (btn) {
+        btn.className = state.isAxisTransparent ? "btn active" : "btn";
+        btn.textContent = state.isAxisTransparent ? "🌓 Transparent Axes" : "🌔 Solid Axes";
+      }
       requestRender();
     }
 

@@ -43,6 +43,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     showBottomAxis,
     showLeftAxis,
     showRightAxis,
+    isAxisTransparent,
     candles,
     swingPoints,
     basePrice,
@@ -485,7 +486,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     // Rendered on top so panning grid slides underneath seamlessly.
     // -------------------------------------------------------------
     ctx.save();
-    const rulerBg = DRAFTING_THEME.paperBackground; // Solid #F7F6F0
+    const rulerBg = isAxisTransparent
+      ? "rgba(247, 246, 240, 0.75)"
+      : DRAFTING_THEME.paperBackground; // Solid #F7F6F0
     const rulerBorder = "rgba(74, 120, 102, 0.50)";
     const charcoal = "#2C2C2C";
     const gannGreen = "rgba(74, 120, 102, 0.85)";
@@ -720,6 +723,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     showBottomAxis,
     showLeftAxis,
     showRightAxis,
+    isAxisTransparent,
     candles,
     swingPoints,
     basePrice,

@@ -101,6 +101,7 @@ export interface GridState {
   showBottomAxis: boolean;
   showLeftAxis: boolean;
   showRightAxis: boolean;
+  isAxisTransparent: boolean;
 
   // Active Cursor Coordinate Tracking
   cursorScreen: Point2D;
@@ -132,6 +133,7 @@ export interface GridState {
   toggleBottomAxis: () => void;
   toggleLeftAxis: () => void;
   toggleRightAxis: () => void;
+  toggleAxisTransparency: () => void;
 
   // Data Actions
   setCandles: (candles: CandleData[]) => void;
@@ -181,6 +183,7 @@ export const useGridState = create<GridState>((set, get) => ({
   showBottomAxis: true,
   showLeftAxis: true,
   showRightAxis: true,
+  isAxisTransparent: false,
 
   cursorScreen: { x: 0, y: 0 },
   cursorWorld: { x: 0, y: 0 },
@@ -256,6 +259,7 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleBottomAxis: () => set((s) => ({ showBottomAxis: !s.showBottomAxis })),
   toggleLeftAxis: () => set((s) => ({ showLeftAxis: !s.showLeftAxis })),
   toggleRightAxis: () => set((s) => ({ showRightAxis: !s.showRightAxis })),
+  toggleAxisTransparency: () => set((s) => ({ isAxisTransparent: !s.isAxisTransparent })),
 
   setCandles: (candles) => set({ candles: identifyCandlestickPatterns(candles) }),
   addSwingPoint: (point) => set((s) => ({ swingPoints: [...s.swingPoints, point] })),
