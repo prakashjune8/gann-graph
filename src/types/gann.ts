@@ -8,6 +8,20 @@ export interface GridCoord {
   row: number; // Discrete Y grid row (minor square index)
 }
 
+export interface CandleData {
+  id: string;
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  gridCol: number; // Discrete X grid column (minor square index)
+  pattern?: string; // Recognized candlestick pattern (Hammer, Doji, Engulfing, etc.)
+  patternType?: "BULLISH" | "BEARISH" | "NEUTRAL";
+  patternDescription?: string;
+}
+
 export interface SwingPoint {
   id: string;
   timeStr: string;
@@ -17,6 +31,12 @@ export interface SwingPoint {
   type: "SWING_HIGH" | "SWING_LOW" | "INTERMEDIATE" | "STEP";
   label?: string;
 }
+
+export type ChartDisplayMode =
+  | "CANDLESTICK"
+  | "OHLC_BAR"
+  | "SWING_STEP"
+  | "HYBRID_CANDLE_SWING";
 
 export interface GannAngleLine {
   id: string;
@@ -36,4 +56,11 @@ export interface GridTheme {
   swingStepStroke: string;      // #9A2A2A (classic crimson drafting ink)
   swingStepFill: string;        // rgba(154, 42, 42, 0.15)
   cursorHighlight: string;      // rgba(41, 128, 185, 0.35)
+  bullishCandle: string;        // #2E7D32
+  bullishCandleFill: string;    // #E8F5E9
+  bearishCandle: string;        // #C62828
+  bearishCandleFill: string;    // #C62828
+  wickColor: string;            // #2C3E35
+  volumeBull: string;           // rgba(46, 125, 50, 0.35)
+  volumeBear: string;           // rgba(198, 40, 40, 0.35)
 }

@@ -1,5 +1,83 @@
 import { create } from "zustand";
-import { Point2D, GridCoord, SwingPoint } from "../types/gann";
+import { Point2D, GridCoord, SwingPoint, CandleData, ChartDisplayMode } from "../types/gann";
+import { identifyCandlestickPatterns } from "../utils/candlestickPatterns";
+
+// Generates rich sample multi-session data with classic Japanese candlestick patterns & swing pivots
+function generateSampleCandleDataset(basePrice = 21500, pricePerUnit = 25.0): {
+  candles: CandleData[];
+  swings: SwingPoint[];
+} {
+  const rawCandles: Omit<CandleData, "pattern" | "patternType" | "patternDescription">[] = [
+    // Session 1-4: Accumulation / Double Bottom with Hammer
+    { id: "c-0", timestamp: "Day 01", open: 21620, high: 21680, low: 21580, close: 21600, volume: 145000, gridCol: 0 },
+    { id: "c-1", timestamp: "Day 02", open: 21590, high: 21610, low: 21490, close: 21510, volume: 182000, gridCol: 2 },
+    { id: "c-2", timestamp: "Day 03", open: 21500, high: 21560, low: 21380, close: 21540, volume: 245000, gridCol: 4 }, // Hammer
+    { id: "c-3", timestamp: "Day 04", open: 21550, high: 21740, low: 21530, close: 21720, volume: 290000, gridCol: 6 }, // Bullish Engulfing
+
+    // Session 5-8: Trend Advance along Gann 1x1 angle
+    { id: "c-4", timestamp: "Day 05", open: 21720, high: 21850, low: 21710, close: 21840, volume: 210000, gridCol: 8 },
+    { id: "c-5", timestamp: "Day 06", open: 21840, high: 21990, low: 21820, close: 21980, volume: 260000, gridCol: 10 },
+    { id: "c-6", timestamp: "Day 07", open: 21990, high: 22150, low: 21970, close: 22140, volume: 320000, gridCol: 12 }, // Marubozu
+    { id: "c-7", timestamp: "Day 08", open: 22150, high: 22280, low: 22120, close: 22160, volume: 380000, gridCol: 14 }, // Shooting Star Peak
+
+    // Session 9-12: Corrective Retracement to 50% equilibrium
+    { id: "c-8", timestamp: "Day 09", open: 22140, high: 22160, low: 21960, close: 21980, volume: 275000, gridCol: 16 }, // Bearish Engulfing
+    { id: "c-9", timestamp: "Day 10", open: 21980, high: 22020, low: 21840, close: 21860, volume: 195000, gridCol: 18 },
+    { id: "c-10", timestamp: "Day 11", open: 21850, high: 21880, low: 21780, close: 21820, volume: 160000, gridCol: 20 }, // Doji
+    { id: "c-11", timestamp: "Day 12", open: 21820, high: 21950, low: 21750, close: 21930, volume: 230000, gridCol: 22 }, // Morning Star Complete
+
+    // Session 13-16: Second Wave Breakout to Square of 9 target
+    { id: "c-12", timestamp: "Day 13", open: 21940, high: 22120, low: 21920, close: 22100, volume: 280000, gridCol: 24 },
+    { id: "c-13", timestamp: "Day 14", open: 22110, high: 22290, low: 22080, close: 22270, volume: 310000, gridCol: 26 },
+    { id: "c-14", timestamp: "Day 15", open: 22280, high: 22480, low: 22250, close: 22460, volume: 410000, gridCol: 28 }, // Strong Bull
+    { id: "c-15", timestamp: "Day 16", open: 22470, high: 22520, low: 22400, close: 22420, volume: 330000, gridCol: 30 }, // Gravestone Doji
+    { id: "c-16", timestamp: "Day 17", open: 22410, high: 22440, low: 22240, close: 22260, volume: 290000, gridCol: 32 },
+  ];
+
+  const analyzedCandles = identifyCandlestickPatterns(rawCandles as CandleData[]);
+
+  // Corresponding Gann Swing points (aligned to highs and lows)
+  const swings: SwingPoint[] = [
+    {
+      id: "sw-1",
+      timeStr: "Day 03",
+      price: 21380,
+      gridCol: 4,
+      gridRow: Math.round((21380 - basePrice) / pricePerUnit),
+      type: "SWING_LOW",
+      label: "Support Low (Hammer)",
+    },
+    {
+      id: "sw-2",
+      timeStr: "Day 08",
+      price: 22280,
+      gridCol: 14,
+      gridRow: Math.round((22280 - basePrice) / pricePerUnit),
+      type: "SWING_HIGH",
+      label: "Swing High (Shooting Star)",
+    },
+    {
+      id: "sw-3",
+      timeStr: "Day 11",
+      price: 21750,
+      gridCol: 22,
+      gridRow: Math.round((21750 - basePrice) / pricePerUnit),
+      type: "SWING_LOW",
+      label: "Gann 50% Retracement",
+    },
+    {
+      id: "sw-4",
+      timeStr: "Day 16",
+      price: 22520,
+      gridCol: 30,
+      gridRow: Math.round((22520 - basePrice) / pricePerUnit),
+      type: "SWING_HIGH",
+      label: "Square of 9 Target",
+    },
+  ];
+
+  return { candles: analyzedCandles, swings };
+}
 
 export interface GridState {
   // Camera View
@@ -13,18 +91,23 @@ export interface GridState {
   readonly majorUnit: number; // 96px = 1 major block (1 inch = 8 * 12px)
   readonly subdivisions: number; // 8 minor squares per major block
 
+  // Chart Rendering Mode: Candlestick, OHLC Bar, Swing Step, or Hybrid
+  chartMode: ChartDisplayMode;
+  showPatterns: boolean;
+  showVolumeBars: boolean;
+
   // Active Cursor Coordinate Tracking
   cursorScreen: Point2D;
   cursorWorld: Point2D;
   cursorGrid: GridCoord;
   isHovered: boolean;
 
-  // Gann Swing Steps Data Series
-  swingPoints: SwingPoint[];
-
-  // Price & Time scaling factors (Units per Grid Square)
-  pricePerUnit: number; // e.g. ₹10.00 per baseUnit minor square
+  // Market Datasets
+  basePrice: number;    // Base price anchor for row = 0
+  pricePerUnit: number; // Price points per baseUnit minor square (e.g. ₹25.00/square)
   timePerUnit: string;  // e.g. "1 Day" or "60 Min" per baseUnit minor square
+  candles: CandleData[];
+  swingPoints: SwingPoint[];
 
   // Actions
   setPan: (pan: Point2D) => void;
@@ -35,15 +118,23 @@ export interface GridState {
   updateCursor: (screenX: number, screenY: number) => void;
   setHovered: (hovered: boolean) => void;
 
+  // Display Mode & Toggle Actions
+  setChartMode: (mode: ChartDisplayMode) => void;
+  setShowPatterns: (show: boolean) => void;
+  setShowVolumeBars: (show: boolean) => void;
+
   // Data Actions
+  setCandles: (candles: CandleData[]) => void;
   addSwingPoint: (point: SwingPoint) => void;
   setSwingPoints: (points: SwingPoint[]) => void;
-  clearSwingPoints: () => void;
-  loadSampleNiftySwing: () => void;
+  clearAllData: () => void;
+  loadSampleDataset: () => void;
 
   // Pure Geometric Calculations
   screenToWorld: (screenX: number, screenY: number) => Point2D;
   worldToScreen: (worldX: number, worldY: number) => Point2D;
+  priceToWorldY: (price: number) => number;
+  worldYToPrice: (worldY: number) => number;
   snapWorldToGrid: (worldX: number, worldY: number) => {
     snappedX: number;
     snappedY: number;
@@ -58,37 +149,34 @@ export interface GridState {
   };
 }
 
+const initialData = generateSampleCandleDataset(21500, 25.0);
+
 export const useGridState = create<GridState>((set, get) => ({
-  // Initial camera placement: centered Cartesian plane
-  pan: { x: 300, y: 550 },
+  pan: { x: 220, y: 560 },
   zoom: 1.0,
   minZoom: 0.15,
   maxZoom: 6.0,
 
-  // K&E 8x8 Fixed Constants
   baseUnit: 12,
   majorUnit: 96,
   subdivisions: 8,
+
+  // Default to HYBRID_CANDLE_SWING for multi-perspective geometric analysis
+  chartMode: "HYBRID_CANDLE_SWING",
+  showPatterns: true,
+  showVolumeBars: true,
 
   cursorScreen: { x: 0, y: 0 },
   cursorWorld: { x: 0, y: 0 },
   cursorGrid: { col: 0, row: 0 },
   isHovered: false,
 
-  pricePerUnit: 10.0,
+  basePrice: 21500,
+  pricePerUnit: 25.0,
   timePerUnit: "1 Day",
 
-  // Sample data: NIFTY 50 Right-Angle Swing Step Pattern
-  swingPoints: [
-    { id: "1", timeStr: "2024-01-02", price: 21500, gridCol: 0,  gridRow: 0,  type: "SWING_LOW",  label: "NIFTY Base 21500" },
-    { id: "2", timeStr: "2024-01-15", price: 22120, gridCol: 16, gridRow: 16, type: "SWING_HIGH", label: "Swing High (1x1 45°)" },
-    { id: "3", timeStr: "2024-01-24", price: 21140, gridCol: 24, gridRow: 4,  type: "SWING_LOW",  label: "Gann 50% Equilibrium" },
-    { id: "4", timeStr: "2024-02-16", price: 22280, gridCol: 40, gridRow: 24, type: "SWING_HIGH", label: "Breakout Step" },
-    { id: "5", timeStr: "2024-03-20", price: 21710, gridCol: 56, gridRow: 12, type: "SWING_LOW",  label: "Minor Low" },
-    { id: "6", timeStr: "2024-04-10", price: 22750, gridCol: 72, gridRow: 32, type: "SWING_HIGH", label: "Square of 9 Target" },
-    { id: "7", timeStr: "2024-05-09", price: 21820, gridCol: 88, gridRow: 16, type: "SWING_LOW",  label: "Support Test" },
-    { id: "8", timeStr: "2024-06-03", price: 23330, gridCol: 104, gridRow: 44, type: "SWING_HIGH", label: "Election Peak" },
-  ],
+  candles: initialData.candles,
+  swingPoints: initialData.swings,
 
   setPan: (pan) => set({ pan }),
 
@@ -103,17 +191,13 @@ export const useGridState = create<GridState>((set, get) => ({
   // Strictly isotropic cursor-centered zoom: X and Y scale by identical factor
   zoomAt: (screenX, screenY, zoomFactorDelta) => {
     const { pan, zoom, minZoom, maxZoom } = get();
-
-    // Calculate new zoom with hard clamping
     const nextZoom = Math.min(Math.max(zoom * zoomFactorDelta, minZoom), maxZoom);
     if (nextZoom === zoom) return;
 
-    // Convert mouse screen position to current world position
-    // World coordinates where Y increases upwards (Cartesian standard)
+    // Cartesian World coordinates where Y increases upwards
     const worldX = (screenX - pan.x) / zoom;
     const worldY = (pan.y - screenY) / zoom;
 
-    // Reposition pan so the invariant world point remains exactly under cursor
     const nextPanX = screenX - worldX * nextZoom;
     const nextPanY = screenY + worldY * nextZoom;
 
@@ -129,17 +213,15 @@ export const useGridState = create<GridState>((set, get) => ({
   },
 
   resetView: (canvasWidth = 1440, canvasHeight = 900) => {
-    // Reset to Cartesian origin with ample margin
     set({
-      pan: { x: Math.floor(canvasWidth * 0.12), y: Math.floor(canvasHeight * 0.78) },
+      pan: { x: Math.floor(canvasWidth * 0.12), y: Math.floor(canvasHeight * 0.75) },
       zoom: 1.0,
     });
   },
 
   updateCursor: (screenX, screenY) => {
-    const { screenToWorld, snapWorldToGrid, screenToGrid } = get();
+    const { screenToWorld, screenToGrid } = get();
     const world = screenToWorld(screenX, screenY);
-    const snapped = snapWorldToGrid(world.x, world.y);
     const grid = screenToGrid(screenX, screenY);
 
     set({
@@ -151,28 +233,22 @@ export const useGridState = create<GridState>((set, get) => ({
 
   setHovered: (hovered) => set({ isHovered: hovered }),
 
-  addSwingPoint: (point) =>
-    set((state) => ({ swingPoints: [...state.swingPoints, point] })),
+  setChartMode: (mode) => set({ chartMode: mode }),
+  setShowPatterns: (show) => set({ showPatterns: show }),
+  setShowVolumeBars: (show) => set({ showVolumeBars: show }),
 
+  setCandles: (candles) => set({ candles: identifyCandlestickPatterns(candles) }),
+  addSwingPoint: (point) => set((s) => ({ swingPoints: [...s.swingPoints, point] })),
   setSwingPoints: (points) => set({ swingPoints: points }),
 
-  clearSwingPoints: () => set({ swingPoints: [] }),
+  clearAllData: () => set({ candles: [], swingPoints: [] }),
 
-  loadSampleNiftySwing: () =>
-    set(() => ({
-      swingPoints: [
-        { id: "1", timeStr: "2024-01-02", price: 21500, gridCol: 0,  gridRow: 0,  type: "SWING_LOW",  label: "NIFTY Base 21500" },
-        { id: "2", timeStr: "2024-01-15", price: 22120, gridCol: 16, gridRow: 16, type: "SWING_HIGH", label: "Swing High (1x1 45°)" },
-        { id: "3", timeStr: "2024-01-24", price: 21140, gridCol: 24, gridRow: 4,  type: "SWING_LOW",  label: "Gann 50% Equilibrium" },
-        { id: "4", timeStr: "2024-02-16", price: 22280, gridCol: 40, gridRow: 24, type: "SWING_HIGH", label: "Breakout Step" },
-        { id: "5", timeStr: "2024-03-20", price: 21710, gridCol: 56, gridRow: 12, type: "SWING_LOW",  label: "Minor Low" },
-        { id: "6", timeStr: "2024-04-10", price: 22750, gridCol: 72, gridRow: 32, type: "SWING_HIGH", label: "Square of 9 Target" },
-        { id: "7", timeStr: "2024-05-09", price: 21820, gridCol: 88, gridRow: 16, type: "SWING_LOW",  label: "Support Test" },
-        { id: "8", timeStr: "2024-06-03", price: 23330, gridCol: 104, gridRow: 44, type: "SWING_HIGH", label: "Election Peak" },
-      ],
-    })),
+  loadSampleDataset: () => {
+    const fresh = generateSampleCandleDataset(get().basePrice, get().pricePerUnit);
+    set({ candles: fresh.candles, swingPoints: fresh.swings });
+  },
 
-  // Conversion: Screen (pixels) -> World (world pixels, 1:1 isotropic)
+  // Conversion: Screen -> World
   screenToWorld: (screenX, screenY) => {
     const { pan, zoom } = get();
     return {
@@ -181,13 +257,25 @@ export const useGridState = create<GridState>((set, get) => ({
     };
   },
 
-  // Conversion: World (world pixels) -> Screen (pixels)
+  // Conversion: World -> Screen
   worldToScreen: (worldX, worldY) => {
     const { pan, zoom } = get();
     return {
       x: pan.x + worldX * zoom,
       y: pan.y - worldY * zoom, // Cartesian: inverted for screen raster
     };
+  },
+
+  // Price (in Rupees) -> World Y (in pixels)
+  priceToWorldY: (price: number) => {
+    const { basePrice, pricePerUnit, baseUnit } = get();
+    return ((price - basePrice) / pricePerUnit) * baseUnit;
+  },
+
+  // World Y (in pixels) -> Price (in Rupees)
+  worldYToPrice: (worldY: number) => {
+    const { basePrice, pricePerUnit, baseUnit } = get();
+    return basePrice + (worldY / baseUnit) * pricePerUnit;
   },
 
   // Snap continuous world coordinates to nearest K&E baseUnit intersection
@@ -203,7 +291,7 @@ export const useGridState = create<GridState>((set, get) => ({
     };
   },
 
-  // Screen coordinate directly to snapped grid col/row and snapped screen pixel
+  // Screen coordinate to snapped grid col/row
   screenToGrid: (screenX, screenY) => {
     const { screenToWorld, snapWorldToGrid, worldToScreen } = get();
     const world = screenToWorld(screenX, screenY);

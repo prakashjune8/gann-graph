@@ -11,11 +11,17 @@ const DRAFTING_THEME: GridTheme = {
   swingStepStroke: "#8B1E1E",                 // Traditional crimson drafting ink for swings
   swingStepFill: "rgba(139, 30, 30, 0.12)",
   cursorHighlight: "rgba(33, 115, 70, 0.35)",
+  bullishCandle: "#2E7D32",                   // Emerald Bull
+  bullishCandleFill: "#E8F5E9",
+  bearishCandle: "#C62828",                   // Crimson Bear
+  bearishCandleFill: "#C62828",
+  wickColor: "#1E2A24",
+  volumeBull: "rgba(46, 125, 50, 0.30)",
+  volumeBear: "rgba(198, 40, 40, 0.30)",
 };
 
 interface GannCanvasProps {
   showGannRay45?: boolean;
-  showCoordinatesHUD?: boolean;
 }
 
 export const GannCanvas: React.FC<GannCanvasProps> = ({
@@ -30,7 +36,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     baseUnit,
     majorUnit,
     subdivisions,
+    chartMode,
+    showPatterns,
+    showVolumeBars,
+    candles,
     swingPoints,
+    basePrice,
     pricePerUnit,
     panBy,
     zoomAt,
@@ -38,10 +49,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     setHovered,
     screenToWorld,
     worldToScreen,
-    snapWorldToGrid,
+    priceToWorldY,
+    worldYToPrice,
   } = useGridState();
 
-  // Mouse drag tracking refs to avoid React re-render overhead during high-frequency mousemove
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const animationFrameRef = useRef<number | null>(null);
@@ -66,12 +77,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     ctx.fillStyle = DRAFTING_THEME.paperBackground;
     ctx.fillRect(0, 0, width, height);
 
-    // Dynamic grid line spacing under current isotropic zoom
     const scaledBase = baseUnit * zoom;
-    const scaledMajor = majorUnit * zoom;
 
     // Calculate visible Cartesian bounds in world units
-    // Screen (0, 0) is top-left; Screen (width, height) is bottom-right
     const topLeftWorld = screenToWorld(0, 0);
     const bottomRightWorld = screenToWorld(width, height);
 
@@ -80,29 +88,26 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const minWorldY = Math.min(topLeftWorld.y, bottomRightWorld.y);
     const maxWorldY = Math.max(topLeftWorld.y, bottomRightWorld.y);
 
-    // Determine grid line integer index ranges
     const startCol = Math.floor(minWorldX / baseUnit) - 1;
     const endCol = Math.ceil(maxWorldX / baseUnit) + 1;
     const startRow = Math.floor(minWorldY / baseUnit) - 1;
     const endRow = Math.ceil(maxWorldY / baseUnit) + 1;
 
     // -------------------------------------------------------------
-    // 1. DRAW MINOR GRID LINES (1/8th inch, baseUnit = 12px)
+    // 1. MINOR GRID LINES (1/8th inch, baseUnit = 12px)
     // -------------------------------------------------------------
     ctx.lineWidth = 1;
     ctx.strokeStyle = DRAFTING_THEME.minorGridLine;
     ctx.beginPath();
 
-    // Vertical minor lines
     for (let col = startCol; col <= endCol; col++) {
       if (col % subdivisions !== 0) {
-        const screenX = Math.round(pan.x + col * scaledBase) + 0.5; // Sub-pixel snapping
+        const screenX = Math.round(pan.x + col * scaledBase) + 0.5;
         ctx.moveTo(screenX, 0);
         ctx.lineTo(screenX, height);
       }
     }
 
-    // Horizontal minor lines (Cartesian: Y inverted for screen raster)
     for (let row = startRow; row <= endRow; row++) {
       if (row % subdivisions !== 0) {
         const screenY = Math.round(pan.y - row * scaledBase) + 0.5;
@@ -113,13 +118,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     ctx.stroke();
 
     // -------------------------------------------------------------
-    // 2. DRAW MAJOR GRID LINES (1 inch, majorUnit = 96px, 8x8 blocks)
+    // 2. MAJOR GRID LINES (1 inch, majorUnit = 96px, 8x8 blocks)
     // -------------------------------------------------------------
     ctx.lineWidth = 1.25;
     ctx.strokeStyle = DRAFTING_THEME.majorGridLine;
     ctx.beginPath();
 
-    // Vertical major lines
     for (let col = startCol; col <= endCol; col++) {
       if (col % subdivisions === 0 && col !== 0) {
         const screenX = Math.round(pan.x + col * scaledBase) + 0.5;
@@ -128,7 +132,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
     }
 
-    // Horizontal major lines
     for (let row = startRow; row <= endRow; row++) {
       if (row % subdivisions === 0 && row !== 0) {
         const screenY = Math.round(pan.y - row * scaledBase) + 0.5;
@@ -145,14 +148,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     ctx.strokeStyle = DRAFTING_THEME.axisLine;
     ctx.beginPath();
 
-    // X Axis (row = 0)
     const axisY = Math.round(pan.y) + 0.5;
     if (axisY >= 0 && axisY <= height) {
       ctx.moveTo(0, axisY);
       ctx.lineTo(width, axisY);
     }
 
-    // Y Axis (col = 0)
     const axisX = Math.round(pan.x) + 0.5;
     if (axisX >= 0 && axisX <= width) {
       ctx.moveTo(axisX, 0);
@@ -169,18 +170,17 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       ctx.fillStyle = "rgba(42, 75, 62, 0.75)";
       ctx.font = "bold 10px 'Courier New', monospace";
-      ctx.fillText("0,0 (K&E ORIGIN)", axisX + 7, axisY - 6);
+      ctx.fillText(`0,0 (BASE ₹${basePrice})`, axisX + 7, axisY - 6);
     }
 
     // -------------------------------------------------------------
     // 4. GANN 1x1 (45-DEGREE) TRUE DIAGONAL RAY
-    // In a true 1:1 locked grid, 1x1 angle passes through every corner!
     // -------------------------------------------------------------
     if (showGannRay45) {
       ctx.save();
       ctx.lineWidth = 1.5;
       ctx.setLineDash([6, 3]);
-      ctx.strokeStyle = "rgba(180, 80, 50, 0.70)"; // Faded rust orange
+      ctx.strokeStyle = "rgba(180, 80, 50, 0.70)";
 
       const rayStartScreen = worldToScreen(0, 0);
       const maxExtent = 5000;
@@ -191,8 +191,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.lineTo(rayEndScreen.x, rayEndScreen.y);
       ctx.stroke();
 
-      // Label on the 1x1 ray
-      const labelWorldCoord = 24 * baseUnit; // 3 inches out
+      const labelWorldCoord = 24 * baseUnit;
       const labelScreen = worldToScreen(labelWorldCoord, labelWorldCoord);
       if (
         labelScreen.x >= 0 &&
@@ -208,24 +207,217 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
 
     // -------------------------------------------------------------
-    // 5. GANN RIGHT-ANGLE "SWING STEPS" PLOTTING
-    // Strictly snapped to grid intersections. No diagonal candlestick lines.
+    // 5. VOLUME HISTOGRAM BARS (DRAFTING BASELINE)
     // -------------------------------------------------------------
-    if (swingPoints.length > 0) {
+    if (showVolumeBars && candles.length > 0) {
       ctx.save();
+      const maxVol = Math.max(...candles.map((c) => c.volume), 1);
+      const volumeChartHeight = 65;
+      const volumeBaseY = height - 18;
 
-      // Step Path: Horizontal Time Step followed by Vertical Price Step
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = DRAFTING_THEME.swingStepStroke;
+      candles.forEach((c) => {
+        const colWorldX = c.gridCol * baseUnit;
+        const colScreenX = worldToScreen(colWorldX, 0).x;
+        const barWidth = Math.max(3, scaledBase * 0.7);
+        const barHeight = (c.volume / maxVol) * volumeChartHeight;
+        const isBull = c.close >= c.open;
+
+        ctx.fillStyle = isBull ? DRAFTING_THEME.volumeBull : DRAFTING_THEME.volumeBear;
+        ctx.fillRect(
+          colScreenX - barWidth / 2,
+          volumeBaseY - barHeight,
+          barWidth,
+          barHeight
+        );
+        ctx.strokeStyle = isBull ? "rgba(46, 125, 50, 0.6)" : "rgba(198, 40, 40, 0.6)";
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(
+          colScreenX - barWidth / 2,
+          volumeBaseY - barHeight,
+          barWidth,
+          barHeight
+        );
+      });
+
+      ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
+      ctx.font = "9px 'Courier New', monospace";
+      ctx.fillText("VOLUME HISTOGRAM", 20, volumeBaseY - volumeChartHeight - 4);
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------
+    // 6. JAPANESE CANDLESTICK RENDERING
+    // -------------------------------------------------------------
+    if (
+      (chartMode === "CANDLESTICK" || chartMode === "HYBRID_CANDLE_SWING") &&
+      candles.length > 0
+    ) {
+      ctx.save();
+      const candleBodyWidth = Math.max(4, scaledBase * 0.72);
+
+      candles.forEach((c) => {
+        const colWorldX = c.gridCol * baseUnit;
+        const screenColX = worldToScreen(colWorldX, 0).x;
+
+        // Skip off-screen candles
+        if (screenColX < -60 || screenColX > width + 60) return;
+
+        const openWorldY = priceToWorldY(c.open);
+        const highWorldY = priceToWorldY(c.high);
+        const lowWorldY = priceToWorldY(c.low);
+        const closeWorldY = priceToWorldY(c.close);
+
+        const openScreenY = worldToScreen(0, openWorldY).y;
+        const highScreenY = worldToScreen(0, highWorldY).y;
+        const lowScreenY = worldToScreen(0, lowWorldY).y;
+        const closeScreenY = worldToScreen(0, closeWorldY).y;
+
+        const isBull = c.close >= c.open;
+        const topBodyY = Math.min(openScreenY, closeScreenY);
+        const bodyHeight = Math.max(2, Math.abs(closeScreenY - openScreenY));
+
+        // Draw Candle Wick (Upper & Lower)
+        ctx.strokeStyle = DRAFTING_THEME.wickColor;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(Math.round(screenColX) + 0.5, Math.round(highScreenY));
+        ctx.lineTo(Math.round(screenColX) + 0.5, Math.round(lowScreenY));
+        ctx.stroke();
+
+        // Draw Real Body Rectangle
+        const bodyLeft = Math.round(screenColX - candleBodyWidth / 2);
+
+        if (isBull) {
+          ctx.fillStyle = DRAFTING_THEME.bullishCandleFill;
+          ctx.strokeStyle = DRAFTING_THEME.bullishCandle;
+          ctx.lineWidth = 1.5;
+          ctx.fillRect(bodyLeft, topBodyY, candleBodyWidth, bodyHeight);
+          ctx.strokeRect(bodyLeft, topBodyY, candleBodyWidth, bodyHeight);
+        } else {
+          ctx.fillStyle = DRAFTING_THEME.bearishCandleFill;
+          ctx.strokeStyle = DRAFTING_THEME.bearishCandle;
+          ctx.lineWidth = 1.5;
+          ctx.fillRect(bodyLeft, topBodyY, candleBodyWidth, bodyHeight);
+          ctx.strokeRect(bodyLeft, topBodyY, candleBodyWidth, bodyHeight);
+        }
+
+        // ---------------------------------------------------------
+        // CANDLESTICK PATTERN BADGES & ANNOTATIONS
+        // ---------------------------------------------------------
+        if (showPatterns && c.pattern) {
+          const isBearishPattern = c.patternType === "BEARISH";
+          const tagY = isBearishPattern ? highScreenY - 14 : lowScreenY + 18;
+
+          ctx.save();
+          ctx.font = "bold 9px 'Courier New', monospace";
+          const textMetrics = ctx.measureText(c.pattern);
+          const badgeWidth = textMetrics.width + 10;
+          const badgeHeight = 15;
+          const badgeX = screenColX - badgeWidth / 2;
+
+          // Pill Background
+          ctx.fillStyle =
+            c.patternType === "BULLISH"
+              ? "rgba(46, 125, 50, 0.90)"
+              : c.patternType === "BEARISH"
+              ? "rgba(198, 40, 40, 0.90)"
+              : "rgba(55, 71, 79, 0.85)";
+
+          ctx.beginPath();
+          ctx.roundRect(badgeX, tagY - 11, badgeWidth, badgeHeight, 3);
+          ctx.fill();
+
+          // Pill Text
+          ctx.fillStyle = "#FFFFFF";
+          ctx.fillText(c.pattern, badgeX + 5, tagY);
+
+          // Indicator pointer line connecting badge to extreme wick
+          ctx.strokeStyle = ctx.fillStyle;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(screenColX, isBearishPattern ? highScreenY : lowScreenY);
+          ctx.lineTo(screenColX, isBearishPattern ? tagY + 4 : tagY - 11);
+          ctx.stroke();
+
+          ctx.restore();
+        }
+      });
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------
+    // 7. WESTERN OHLC BAR GRAPH RENDERING
+    // -------------------------------------------------------------
+    if (chartMode === "OHLC_BAR" && candles.length > 0) {
+      ctx.save();
+      const tickWidth = Math.max(3, scaledBase * 0.42);
+
+      candles.forEach((c) => {
+        const colWorldX = c.gridCol * baseUnit;
+        const screenColX = Math.round(worldToScreen(colWorldX, 0).x) + 0.5;
+
+        if (screenColX < -50 || screenColX > width + 50) return;
+
+        const openScreenY = Math.round(worldToScreen(0, priceToWorldY(c.open)).y) + 0.5;
+        const highScreenY = Math.round(worldToScreen(0, priceToWorldY(c.high)).y) + 0.5;
+        const lowScreenY = Math.round(worldToScreen(0, priceToWorldY(c.low)).y) + 0.5;
+        const closeScreenY = Math.round(worldToScreen(0, priceToWorldY(c.close)).y) + 0.5;
+
+        const isBull = c.close >= c.open;
+        ctx.strokeStyle = isBull ? DRAFTING_THEME.bullishCandle : DRAFTING_THEME.bearishCandle;
+        ctx.lineWidth = 1.8;
+
+        // 1. High-Low Central Spine
+        ctx.beginPath();
+        ctx.moveTo(screenColX, highScreenY);
+        ctx.lineTo(screenColX, lowScreenY);
+        ctx.stroke();
+
+        // 2. Open Tick (Extends to Left)
+        ctx.beginPath();
+        ctx.moveTo(screenColX - tickWidth, openScreenY);
+        ctx.lineTo(screenColX, openScreenY);
+        ctx.stroke();
+
+        // 3. Close Tick (Extends to Right)
+        ctx.beginPath();
+        ctx.moveTo(screenColX, closeScreenY);
+        ctx.lineTo(screenColX + tickWidth, closeScreenY);
+        ctx.stroke();
+
+        // Pattern Tag
+        if (showPatterns && c.pattern) {
+          ctx.save();
+          ctx.font = "bold 9px 'Courier New', monospace";
+          ctx.fillStyle = isBull ? "#2E7D32" : "#C62828";
+          const tagY = c.patternType === "BEARISH" ? highScreenY - 8 : lowScreenY + 14;
+          ctx.fillText(c.pattern, screenColX + 6, tagY);
+          ctx.restore();
+        }
+      });
+      ctx.restore();
+    }
+
+    // -------------------------------------------------------------
+    // 8. GANN RIGHT-ANGLE "SWING STEPS" PLOTTING
+    // Rendered in SWING_STEP mode OR superimposed in HYBRID mode
+    // -------------------------------------------------------------
+    if (
+      (chartMode === "SWING_STEP" || chartMode === "HYBRID_CANDLE_SWING") &&
+      swingPoints.length > 0
+    ) {
+      ctx.save();
+      ctx.lineWidth = chartMode === "HYBRID_CANDLE_SWING" ? 2.8 : 2.5;
+      ctx.strokeStyle =
+        chartMode === "HYBRID_CANDLE_SWING"
+          ? "rgba(139, 30, 30, 0.88)"
+          : DRAFTING_THEME.swingStepStroke;
       ctx.lineJoin = "miter";
       ctx.lineCap = "square";
       ctx.beginPath();
 
       const firstPoint = swingPoints[0];
-      const firstWorldX = firstPoint.gridCol * baseUnit;
-      const firstWorldY = firstPoint.gridRow * baseUnit;
-      let currScreen = worldToScreen(firstWorldX, firstWorldY);
-
+      let currScreen = worldToScreen(firstPoint.gridCol * baseUnit, firstPoint.gridRow * baseUnit);
       ctx.moveTo(currScreen.x, currScreen.y);
 
       for (let i = 1; i < swingPoints.length; i++) {
@@ -233,11 +425,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const nextWorldX = nextPoint.gridCol * baseUnit;
         const nextWorldY = nextPoint.gridRow * baseUnit;
 
-        // Step 1: Move horizontally to the new time coordinate at previous price
+        // Step 1: Advance horizontally to new time node
         const cornerScreen = worldToScreen(nextWorldX, swingPoints[i - 1].gridRow * baseUnit);
         ctx.lineTo(cornerScreen.x, cornerScreen.y);
 
-        // Step 2: Move vertically to the new price coordinate
+        // Step 2: Step vertically to new price level
         const nextScreen = worldToScreen(nextWorldX, nextWorldY);
         ctx.lineTo(nextScreen.x, nextScreen.y);
 
@@ -245,20 +437,14 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
       ctx.stroke();
 
-      // Draw Grid Vertex Nodes & Annotation Tags
+      // Swing Vertex Nodes
       swingPoints.forEach((pt) => {
-        const worldPos = {
-          x: pt.gridCol * baseUnit,
-          y: pt.gridRow * baseUnit,
-        };
-        const sPos = worldToScreen(worldPos.x, worldPos.y);
+        const sPos = worldToScreen(pt.gridCol * baseUnit, pt.gridRow * baseUnit);
 
-        // Check if inside screen view before drawing details
         if (sPos.x < -50 || sPos.x > width + 50 || sPos.y < -50 || sPos.y > height + 50) {
           return;
         }
 
-        // Draw solid square vertex on grid intersection
         const nodeSize = 6;
         ctx.fillStyle = pt.type === "SWING_HIGH" ? "#2E7D32" : "#C62828";
         ctx.fillRect(sPos.x - nodeSize / 2, sPos.y - nodeSize / 2, nodeSize, nodeSize);
@@ -266,17 +452,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.lineWidth = 1;
         ctx.strokeRect(sPos.x - nodeSize / 2, sPos.y - nodeSize / 2, nodeSize, nodeSize);
 
-        // Label typography
-        ctx.fillStyle = "#1E2A24";
-        ctx.font = "600 10px 'Courier New', monospace";
-        const tag = `[${pt.gridCol},${pt.gridRow}] ₹${pt.price.toLocaleString("en-IN")}`;
-        const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
-        ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
-
-        if (pt.label) {
-          ctx.fillStyle = "rgba(74, 120, 102, 0.95)";
-          ctx.font = "italic 9px sans-serif";
-          ctx.fillText(pt.label, sPos.x + 8, sPos.y + offsetY + (pt.type === "SWING_HIGH" ? -10 : 12));
+        if (chartMode === "SWING_STEP") {
+          ctx.fillStyle = "#1E2A24";
+          ctx.font = "600 10px 'Courier New', monospace";
+          const tag = `[${pt.gridCol},${pt.gridRow}] ₹${pt.price.toLocaleString("en-IN")}`;
+          const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
+          ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
         }
       });
 
@@ -284,30 +465,30 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
 
     // -------------------------------------------------------------
-    // 6. K&E MAJOR UNIT INCH RULER LABELS
+    // 9. PRICE Y-AXIS & TIME X-AXIS RULER READOUTS
     // -------------------------------------------------------------
     ctx.save();
     ctx.fillStyle = "rgba(74, 120, 102, 0.85)";
     ctx.font = "bold 9px 'Courier New', monospace";
 
-    // Column markers (every major block = 8 units = 1 inch)
-    for (let col = startCol; col <= endCol; col++) {
-      if (col % subdivisions === 0 && col !== 0) {
-        const screenX = Math.round(pan.x + col * scaledBase);
-        const inchIndex = col / subdivisions;
-        if (screenX >= 20 && screenX <= width - 20) {
-          ctx.fillText(`${inchIndex}"`, screenX + 3, height - 8);
+    // Row markers: Price values at every major block (1 inch = 8 subdivisions)
+    for (let row = startRow; row <= endRow; row++) {
+      if (row % subdivisions === 0) {
+        const screenY = Math.round(pan.y - row * scaledBase);
+        const priceVal = basePrice + row * pricePerUnit;
+        if (screenY >= 20 && screenY <= height - 20) {
+          ctx.fillText(`₹${priceVal.toFixed(0)} (${row / subdivisions}")`, 8, screenY - 3);
         }
       }
     }
 
-    // Row markers (every major block = 8 units = 1 inch)
-    for (let row = startRow; row <= endRow; row++) {
-      if (row % subdivisions === 0 && row !== 0) {
-        const screenY = Math.round(pan.y - row * scaledBase);
-        const inchIndex = row / subdivisions;
-        if (screenY >= 20 && screenY <= height - 20) {
-          ctx.fillText(`${inchIndex}"`, 8, screenY - 3);
+    // Column markers (Inches & Dates)
+    for (let col = startCol; col <= endCol; col++) {
+      if (col % subdivisions === 0) {
+        const screenX = Math.round(pan.x + col * scaledBase);
+        const inchIndex = col / subdivisions;
+        if (screenX >= 20 && screenX <= width - 20) {
+          ctx.fillText(`${inchIndex}"`, screenX + 3, height - 8);
         }
       }
     }
@@ -318,13 +499,20 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     baseUnit,
     majorUnit,
     subdivisions,
+    chartMode,
+    showPatterns,
+    showVolumeBars,
+    candles,
     swingPoints,
+    basePrice,
+    pricePerUnit,
     showGannRay45,
     screenToWorld,
     worldToScreen,
+    priceToWorldY,
   ]);
 
-  // Request Animation Frame sync on pan/zoom changes
+  // Request Animation Frame sync
   useEffect(() => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -338,7 +526,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     };
   }, [render]);
 
-  // Canvas resize listener maintaining razor-sharp High-DPI buffer
+  // Window resize listener
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -361,11 +549,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [render]);
 
   /**
-   * INTERACTION HANDLERS:
-   * Infinite Cartesian Panning & Cursor-Centered Fixed 1:1 Zoom
+   * MOUSE HANDLERS: Infinite Panning & Cursor-Centered Zooming
    */
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // Middle click or Left click initiate pan
     if (e.button === 0 || e.button === 1) {
       isDraggingRef.current = true;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
@@ -380,10 +566,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
 
-    // Track cursor coordinates into Zustand store
     updateCursor(screenX, screenY);
 
-    // Pan canvas if dragging
     if (isDraggingRef.current) {
       const deltaX = e.clientX - dragStartRef.current.x;
       const deltaY = e.clientY - dragStartRef.current.y;
@@ -406,7 +590,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     setHovered(false);
   };
 
-  // Fixed 1:1 aspect ratio isotropic zoom centered directly under cursor
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const canvas = canvasRef.current;
@@ -416,7 +599,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const cursorX = e.clientX - rect.left;
     const cursorY = e.clientY - rect.top;
 
-    // Zoom multiplier (exponential smooth step)
     const zoomMultiplier = e.deltaY < 0 ? 1.08 : 0.92;
     zoomAt(cursorX, cursorY, zoomMultiplier);
   };

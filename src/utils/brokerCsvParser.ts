@@ -4,7 +4,8 @@
  * and maps them directly into discrete K&E grid coordinates.
  */
 
-import { SwingPoint } from "../types/gann";
+import { SwingPoint, CandleData } from "../types/gann";
+import { identifyCandlestickPatterns } from "./candlestickPatterns";
 
 export interface BrokerCandle {
   timestamp: string;
@@ -56,26 +57,45 @@ export function parseBrokerCsv(csvContent: string): BrokerCandle[] {
 }
 
 /**
+ * Converts raw Broker candles into CandleData with automatic pattern detection
+ * and assigns them sequentially to K&E grid columns (step = 2 for spacing).
+ */
+export function convertBrokerCandlesToCandleData(
+  brokerCandles: BrokerCandle[],
+  columnSpacing: number = 2
+): CandleData[] {
+  const raw: CandleData[] = brokerCandles.map((c, i) => ({
+    id: `bc-${i}`,
+    timestamp: c.timestamp,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+    volume: c.volume,
+    gridCol: i * columnSpacing,
+  }));
+
+  return identifyCandlestickPatterns(raw);
+}
+
+/**
  * Converts raw price candles into Gann 2-Bar Swing Indicator Points
  * and locks them to discrete K&E 8x8 grid coordinates.
  */
 export function extractGannSwings(
   candles: BrokerCandle[],
   basePrice: number,
-  pricePerGridUnit: number = 10.0
+  pricePerGridUnit: number = 25.0,
+  columnSpacing: number = 2
 ): SwingPoint[] {
   if (candles.length < 3) return [];
 
   const swings: SwingPoint[] = [];
   let trend: "UP" | "DOWN" = "UP";
-  let lastSwingCol = 0;
-  let lastSwingRow = 0;
 
   candles.forEach((c, index) => {
-    const col = index; // 1 candle = 1 minor grid unit (baseUnit = 12px)
-    const row = Math.round((c.close - basePrice) / pricePerGridUnit);
+    const col = index * columnSpacing;
 
-    // Simple 2-bar Gann swing rule for demonstration
     if (trend === "UP" && index >= 2) {
       if (c.low < candles[index - 1].low && candles[index - 1].low < candles[index - 2].low) {
         trend = "DOWN";
@@ -83,7 +103,7 @@ export function extractGannSwings(
           id: `swing-${index}`,
           timeStr: c.timestamp,
           price: candles[index - 1].high,
-          gridCol: index - 1,
+          gridCol: (index - 1) * columnSpacing,
           gridRow: Math.round((candles[index - 1].high - basePrice) / pricePerGridUnit),
           type: "SWING_HIGH",
           label: `Peak ₹${candles[index - 1].high}`,
@@ -96,16 +116,13 @@ export function extractGannSwings(
           id: `swing-${index}`,
           timeStr: c.timestamp,
           price: candles[index - 1].low,
-          gridCol: index - 1,
+          gridCol: (index - 1) * columnSpacing,
           gridRow: Math.round((candles[index - 1].low - basePrice) / pricePerGridUnit),
           type: "SWING_LOW",
           label: `Bottom ₹${candles[index - 1].low}`,
         });
       }
     }
-
-    lastSwingCol = col;
-    lastSwingRow = row;
   });
 
   return swings;

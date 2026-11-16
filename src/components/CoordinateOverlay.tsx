@@ -9,13 +9,19 @@ export const CoordinateOverlay: React.FC = () => {
     majorUnit,
     cursorWorld,
     cursorGrid,
-    isHovered,
+    chartMode,
+    candles,
     swingPoints,
+    worldYToPrice,
+    showPatterns,
   } = useGridState();
 
   const zoomPercent = Math.round(zoom * 100);
   const inchCol = (cursorGrid.col / 8).toFixed(3);
   const inchRow = (cursorGrid.row / 8).toFixed(3);
+  const cursorPrice = worldYToPrice(cursorWorld.y).toFixed(1);
+
+  const patternCount = candles.filter((c) => c.pattern).length;
 
   return (
     <div
@@ -23,7 +29,7 @@ export const CoordinateOverlay: React.FC = () => {
         position: "absolute",
         bottom: 16,
         left: 16,
-        backgroundColor: "rgba(247, 246, 240, 0.94)",
+        backgroundColor: "rgba(247, 246, 240, 0.95)",
         border: "1px solid rgba(74, 120, 102, 0.45)",
         borderRadius: 4,
         padding: "8px 14px",
@@ -34,7 +40,7 @@ export const CoordinateOverlay: React.FC = () => {
         pointerEvents: "none",
         lineHeight: 1.5,
         zIndex: 50,
-        minWidth: 320,
+        minWidth: 350,
       }}
     >
       <div
@@ -64,23 +70,23 @@ export const CoordinateOverlay: React.FC = () => {
         </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 12px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 14px" }}>
+        <div>
+          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Active Mode:</span>{" "}
+          <strong>{chartMode.replace(/_/g, " ")}</strong>
+        </div>
         <div>
           <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Zoom Scale:</span>{" "}
-          <strong>{zoomPercent}%</strong> ({zoom.toFixed(3)}x)
+          <strong>{zoomPercent}%</strong> ({zoom.toFixed(2)}x)
+        </div>
+
+        <div>
+          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Cursor Price:</span>{" "}
+          <strong style={{ color: "#1B5E20" }}>₹{cursorPrice}</strong>
         </div>
         <div>
           <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Pan Origin:</span>{" "}
           [{Math.round(pan.x)}, {Math.round(pan.y)}]
-        </div>
-
-        <div>
-          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Grid Minor:</span>{" "}
-          <strong>{baseUnit}px</strong> (1/8")
-        </div>
-        <div>
-          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Grid Major:</span>{" "}
-          <strong>{majorUnit}px</strong> (1")
         </div>
 
         <div>
@@ -95,12 +101,14 @@ export const CoordinateOverlay: React.FC = () => {
         </div>
 
         <div>
-          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>World Cartesian:</span>{" "}
-          {cursorWorld.x.toFixed(1)}, {cursorWorld.y.toFixed(1)}
+          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Bars / Candles:</span>{" "}
+          <strong>{candles.length} bars</strong>
         </div>
         <div>
-          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Active Swings:</span>{" "}
-          <strong>{swingPoints.length} pivots</strong>
+          <span style={{ color: "rgba(74, 120, 102, 0.9)" }}>Patterns Flagged:</span>{" "}
+          <strong style={{ color: "#C62828" }}>
+            {showPatterns ? `${patternCount} patterns` : "Hidden"}
+          </strong>
         </div>
       </div>
 
@@ -115,8 +123,8 @@ export const CoordinateOverlay: React.FC = () => {
           justifyContent: "space-between",
         }}
       >
-        <span>Left Drag: Pan Cartesian Space</span>
-        <span>Scroll: Isotropic Zoom</span>
+        <span>Left Drag: 2D Pan</span>
+        <span>Scroll: 1:1 Isotropic Zoom</span>
       </div>
     </div>
   );
