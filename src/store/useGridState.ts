@@ -233,11 +233,13 @@ export const useGridState = create<GridState>((set, get) => ({
       },
     })),
 
-  // Strictly isotropic cursor-centered zoom: X and Y scale by identical factor
+  // Strictly isotropic cursor-centered zoom: X and Y scale by identical factor with safety bounds
   zoomAt: (screenX, screenY, zoomFactorDelta) => {
     const { pan, zoom, minZoom, maxZoom } = get();
-    const nextZoom = Math.min(Math.max(zoom * zoomFactorDelta, minZoom), maxZoom);
-    if (nextZoom === zoom) return;
+    // Safety clamp: Prevent negative factors, inversion, or wild leaps (>1.25 or <0.80) in a single frame
+    const safeFactor = Math.max(0.80, Math.min(1.25, zoomFactorDelta));
+    const nextZoom = Math.min(Math.max(zoom * safeFactor, minZoom), maxZoom);
+    if (Math.abs(nextZoom - zoom) < 0.00001) return;
 
     // Cartesian World coordinates where Y increases upwards
     const worldX = (screenX - pan.x) / zoom;

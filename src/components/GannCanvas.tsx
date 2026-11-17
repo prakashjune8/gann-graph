@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useGridState } from "../store/useGridState";
 import { GridTheme } from "../types/gann";
 import { verifyKeEAspectRatio, auditCanvasBackingStore } from "../utils/ratioSentinel";
+import { normalizeWheelEvent } from "../utils/wheelNormalizer";
 
 // Classic drafting room color palette for Keuffel & Esser 8x8 engineering vellum
 const DRAFTING_THEME: GridTheme = {
@@ -1248,6 +1249,31 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [panBy, majorUnit]);
 
   /**
+   * WHEEL & TRACKPAD INPUT NORMALIZER
+   * Native non-passive event listener prevents unwanted browser zooming and normalizes
+   * high-precision trackpads vs. physical mouse wheels.
+   */
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorY = e.clientY - rect.top;
+
+      const { zoomMultiplier } = normalizeWheelEvent(e);
+      zoomAt(cursorX, cursorY, zoomMultiplier);
+    };
+
+    container.addEventListener("wheel", handleNativeWheel, { passive: false });
+    return () => {
+      container.removeEventListener("wheel", handleNativeWheel);
+    };
+  }, [zoomAt]);
+
+  /**
    * MOUSE HANDLERS (Interacting on Layer 4 crosshairCanvas)
    */
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1286,19 +1312,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const handleMouseLeave = () => {
     isDraggingRef.current = false;
     setHovered(false);
-  };
-
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const canvas = crosshairCanvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const cursorX = e.clientX - rect.left;
-    const cursorY = e.clientY - rect.top;
-
-    const zoomMultiplier = e.deltaY < 0 ? 1.08 : 0.92;
-    zoomAt(cursorX, cursorY, zoomMultiplier);
   };
 
   return (
@@ -1368,7 +1381,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         onMouseUp={handleMouseUp}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
         style={{
           position: "absolute",
           top: 0,
