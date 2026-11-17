@@ -283,23 +283,13 @@ export const useGridState = create<GridState>((set, get) => ({
     } = get();
     if (candles.length === 0 && swingPoints.length === 0) return;
 
-    let maxCol = -Infinity;
-    let latestCandle = candles.length > 0 ? candles[candles.length - 1] : null;
-
-    candles.forEach((c) => {
-      if (c.gridCol > maxCol) {
-        maxCol = c.gridCol;
-        latestCandle = c;
-      }
-    });
-
-    swingPoints.forEach((s) => {
-      if (s.gridCol > maxCol) {
-        maxCol = s.gridCol;
-      }
-    });
-
-    if (maxCol === -Infinity) maxCol = 0;
+    // O(1) Instant Array Traversal (Audit Finding 2.4 Remediation)
+    const latestCandle = candles.length > 0 ? candles[candles.length - 1] : null;
+    const maxCol = latestCandle
+      ? latestCandle.gridCol
+      : swingPoints.length > 0
+      ? swingPoints[swingPoints.length - 1].gridCol
+      : 0;
 
     // Buffer of 3.5 major units (approx. 336px) on right edge
     const rightRulerOffset = showRightAxis ? 88 : 0;

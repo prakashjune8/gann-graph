@@ -104,6 +104,10 @@ export function extractGannSwings(
 ): SwingPoint[] {
   if (candles.length < 3) return [];
 
+  // Guard against division by zero (Audit Finding 1.5 Remediation)
+  const safeDivisor =
+    pricePerGridUnit > 0 ? pricePerGridUnit : basePrice > 0 ? basePrice / 100 : 1.0;
+
   const swings: SwingPoint[] = [];
   let trend: "UP" | "DOWN" = "UP";
 
@@ -116,7 +120,7 @@ export function extractGannSwings(
           timeStr: c.timestamp,
           price: candles[index - 1].high,
           gridCol: (index - 1) * columnSpacing,
-          gridRow: Math.round((candles[index - 1].high - basePrice) / pricePerGridUnit),
+          gridRow: Math.round((candles[index - 1].high - basePrice) / safeDivisor),
           type: "SWING_HIGH",
           label: `Peak ₹${candles[index - 1].high}`,
         });
@@ -129,7 +133,7 @@ export function extractGannSwings(
           timeStr: c.timestamp,
           price: candles[index - 1].low,
           gridCol: (index - 1) * columnSpacing,
-          gridRow: Math.round((candles[index - 1].low - basePrice) / pricePerGridUnit),
+          gridRow: Math.round((candles[index - 1].low - basePrice) / safeDivisor),
           type: "SWING_LOW",
           label: `Bottom ₹${candles[index - 1].low}`,
         });

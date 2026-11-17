@@ -53,8 +53,10 @@ self.onmessage = (e: MessageEvent<CsvWorkerRequest>) => {
     // 2. Candlestick creation & pattern recognition
     const candles = convertBrokerCandlesToCandleData(rawBrokerCandles, columnSpacing);
 
-    // 3. Gann 2-bar swing pivots extraction
-    const swings = extractGannSwings(rawBrokerCandles, basePrice, pricePerGridUnit, columnSpacing);
+    // 3. Gann 2-bar swing pivots extraction (Guarded pricePerGridUnit divisor)
+    const safePricePerGridUnit =
+      pricePerGridUnit > 0 ? pricePerGridUnit : basePrice > 0 ? basePrice / 100 : 1.0;
+    const swings = extractGannSwings(rawBrokerCandles, basePrice, safePricePerGridUnit, columnSpacing);
 
     const parseTimeMs = Math.round(performance.now() - startTime);
 
