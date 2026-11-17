@@ -431,6 +431,19 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         const closeScreenY = worldToScreen(0, closeWorldY).y;
 
         const isBull = c.close >= c.open;
+
+        // Level-of-Detail (LOD) Sentinel (ALPHA-P0-01)
+        // If scaledBase < 3.0px, bypass strokeRect, fillRect, and text badges; render 1px high-density range line
+        if (scaledBase < 3.0) {
+          ctx.strokeStyle = isBull ? DRAFTING_THEME.bullishCandle : DRAFTING_THEME.bearishCandle;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(screenColX, highScreenY);
+          ctx.lineTo(screenColX, lowScreenY);
+          ctx.stroke();
+          return;
+        }
+
         const topBodyY = Math.min(openScreenY, closeScreenY);
         const bodyHeight = Math.max(2, Math.abs(closeScreenY - openScreenY));
 
