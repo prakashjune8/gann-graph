@@ -50,36 +50,34 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     dpr: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
   });
 
-  // Subscribe to Zustand state
-  const {
-    pan,
-    zoom,
-    baseUnit,
-    majorUnit,
-    subdivisions,
-    chartMode,
-    showPatterns,
-    showVolumeBars,
-    showTopAxis,
-    showBottomAxis,
-    showLeftAxis,
-    showRightAxis,
-    isAxisTransparent,
-    showCrosshair,
-    isHovered,
-    cursorGrid,
-    candles,
-    swingPoints,
-    basePrice,
-    pricePerUnit,
-    panBy,
-    zoomAt,
-    updateCursor,
-    setHovered,
-    screenToWorld,
-    worldToScreen,
-    priceToWorldY,
-  } = useGridState();
+  // Granular Isolated Zustand Selectors (DELTA-P0-02 Remediation)
+  // Crucial: GannCanvas does NOT subscribe to cursorGrid, cursorScreen, or cursorWorld to eliminate 60Hz re-render cascades.
+  const pan = useGridState((s) => s.pan);
+  const zoom = useGridState((s) => s.zoom);
+  const baseUnit = useGridState((s) => s.baseUnit);
+  const majorUnit = useGridState((s) => s.majorUnit);
+  const subdivisions = useGridState((s) => s.subdivisions);
+  const chartMode = useGridState((s) => s.chartMode);
+  const showPatterns = useGridState((s) => s.showPatterns);
+  const showVolumeBars = useGridState((s) => s.showVolumeBars);
+  const showTopAxis = useGridState((s) => s.showTopAxis);
+  const showBottomAxis = useGridState((s) => s.showBottomAxis);
+  const showLeftAxis = useGridState((s) => s.showLeftAxis);
+  const showRightAxis = useGridState((s) => s.showRightAxis);
+  const isAxisTransparent = useGridState((s) => s.isAxisTransparent);
+  const showCrosshair = useGridState((s) => s.showCrosshair);
+  const isHovered = useGridState((s) => s.isHovered);
+  const candles = useGridState((s) => s.candles);
+  const swingPoints = useGridState((s) => s.swingPoints);
+  const basePrice = useGridState((s) => s.basePrice);
+  const pricePerUnit = useGridState((s) => s.pricePerUnit);
+  const panBy = useGridState((s) => s.panBy);
+  const zoomAt = useGridState((s) => s.zoomAt);
+  const updateCursor = useGridState((s) => s.updateCursor);
+  const setHovered = useGridState((s) => s.setHovered);
+  const screenToWorld = useGridState((s) => s.screenToWorld);
+  const worldToScreen = useGridState((s) => s.worldToScreen);
+  const priceToWorldY = useGridState((s) => s.priceToWorldY);
 
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -988,6 +986,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       return;
     }
 
+    const { cursorGrid } = useGridState.getState();
     const snapScreen = worldToScreen(cursorGrid.col * baseUnit, cursorGrid.row * baseUnit);
     const cx = Math.round(snapScreen.x);
     const cy = Math.round(snapScreen.y);
@@ -1136,7 +1135,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     // Cache current bounding boxes for microscopic erasure on next tick
     prevDirtyRectsRef.current = newDirtyRects;
   }, [
-    cursorGrid,
     isHovered,
     showCrosshair,
     pan,
@@ -1425,6 +1423,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     updateCursor(screenX, screenY);
 
+    // Schedule Layer 4 crosshair dirty-rect redraw directly via RAF without React re-render
+    if (animFrameCrosshairRef.current) cancelAnimationFrame(animFrameCrosshairRef.current);
+    animFrameCrosshairRef.current = requestAnimationFrame(renderCrosshair);
+
     if (isDraggingRef.current) {
       const deltaX = e.clientX - dragStartRef.current.x;
       const deltaY = e.clientY - dragStartRef.current.y;
@@ -1439,11 +1441,15 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
   const handleMouseEnter = () => {
     setHovered(true);
+    if (animFrameCrosshairRef.current) cancelAnimationFrame(animFrameCrosshairRef.current);
+    animFrameCrosshairRef.current = requestAnimationFrame(renderCrosshair);
   };
 
   const handleMouseLeave = () => {
     isDraggingRef.current = false;
     setHovered(false);
+    if (animFrameCrosshairRef.current) cancelAnimationFrame(animFrameCrosshairRef.current);
+    animFrameCrosshairRef.current = requestAnimationFrame(renderCrosshair);
   };
 
   return (

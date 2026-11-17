@@ -13,37 +13,36 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   showGannRay,
   setShowGannRay,
 }) => {
-  const {
-    zoomAt,
-    setZoom,
-    resetView,
-    jumpToLatest,
-    chartMode,
-    setChartMode,
-    showPatterns,
-    setShowPatterns,
-    showVolumeBars,
-    setShowVolumeBars,
-    showTopAxis,
-    showBottomAxis,
-    showLeftAxis,
-    showRightAxis,
-    isAxisTransparent,
-    showCrosshair,
-    toggleTopAxis,
-    toggleBottomAxis,
-    toggleLeftAxis,
-    toggleRightAxis,
-    toggleAxisTransparency,
-    toggleCrosshair,
-    loadSampleDataset,
-    clearAllData,
-    candles,
-    setCandles,
-    setSwingPoints,
-    basePrice,
-    pricePerUnit,
-  } = useGridState();
+  // Granular Isolated Zustand Selectors (DELTA-P0-02 Remediation)
+  const zoomAt = useGridState((s) => s.zoomAt);
+  const setZoom = useGridState((s) => s.setZoom);
+  const resetView = useGridState((s) => s.resetView);
+  const jumpToLatest = useGridState((s) => s.jumpToLatest);
+  const chartMode = useGridState((s) => s.chartMode);
+  const setChartMode = useGridState((s) => s.setChartMode);
+  const showPatterns = useGridState((s) => s.showPatterns);
+  const setShowPatterns = useGridState((s) => s.setShowPatterns);
+  const showVolumeBars = useGridState((s) => s.showVolumeBars);
+  const setShowVolumeBars = useGridState((s) => s.setShowVolumeBars);
+  const showTopAxis = useGridState((s) => s.showTopAxis);
+  const showBottomAxis = useGridState((s) => s.showBottomAxis);
+  const showLeftAxis = useGridState((s) => s.showLeftAxis);
+  const showRightAxis = useGridState((s) => s.showRightAxis);
+  const isAxisTransparent = useGridState((s) => s.isAxisTransparent);
+  const showCrosshair = useGridState((s) => s.showCrosshair);
+  const toggleTopAxis = useGridState((s) => s.toggleTopAxis);
+  const toggleBottomAxis = useGridState((s) => s.toggleBottomAxis);
+  const toggleLeftAxis = useGridState((s) => s.toggleLeftAxis);
+  const toggleRightAxis = useGridState((s) => s.toggleRightAxis);
+  const toggleAxisTransparency = useGridState((s) => s.toggleAxisTransparency);
+  const toggleCrosshair = useGridState((s) => s.toggleCrosshair);
+  const loadSampleDataset = useGridState((s) => s.loadSampleDataset);
+  const clearAllData = useGridState((s) => s.clearAllData);
+  const hasCandles = useGridState((s) => s.candles.length > 0);
+  const setCandles = useGridState((s) => s.setCandles);
+  const setSwingPoints = useGridState((s) => s.setSwingPoints);
+  const basePrice = useGridState((s) => s.basePrice);
+  const pricePerUnit = useGridState((s) => s.pricePerUnit);
 
   const [isParsing, setIsParsing] = useState(false);
   const [parseNotice, setParseNotice] = useState<string | null>(null);
@@ -463,7 +462,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           {isParsing ? "⏳ Loading Data..." : "📁 Ingest CSV"}
         </button>
 
-        {candles.length === 0 ? (
+        {!hasCandles ? (
           <button
             onClick={loadSampleDataset}
             style={{
