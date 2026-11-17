@@ -561,7 +561,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // 4. Gann Right-Angle Swing Steps
+    // 4. Gann Right-Angle Swing Steps (GAMMA-P0-02 Dynamic Continuous Price Remediation)
     if (
       (chartMode === "SWING_STEP" || chartMode === "HYBRID_CANDLE_SWING") &&
       swingPoints.length > 0
@@ -577,15 +577,21 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.beginPath();
 
       const firstPoint = swingPoints[0];
-      let currScreen = worldToScreen(firstPoint.gridCol * baseUnit, firstPoint.gridRow * baseUnit);
+      let currScreen = worldToScreen(
+        firstPoint.gridCol * baseUnit,
+        priceToWorldY(firstPoint.price)
+      );
       ctx.moveTo(currScreen.x, currScreen.y);
 
       for (let i = 1; i < swingPoints.length; i++) {
+        const prevPoint = swingPoints[i - 1];
         const nextPoint = swingPoints[i];
-        const nextWorldX = nextPoint.gridCol * baseUnit;
-        const nextWorldY = nextPoint.gridRow * baseUnit;
 
-        const cornerScreen = worldToScreen(nextWorldX, swingPoints[i - 1].gridRow * baseUnit);
+        const nextWorldX = nextPoint.gridCol * baseUnit;
+        const prevWorldY = priceToWorldY(prevPoint.price);
+        const nextWorldY = priceToWorldY(nextPoint.price);
+
+        const cornerScreen = worldToScreen(nextWorldX, prevWorldY);
         ctx.lineTo(cornerScreen.x, cornerScreen.y);
 
         const nextScreen = worldToScreen(nextWorldX, nextWorldY);
@@ -595,9 +601,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
       ctx.stroke();
 
-      // Swing Vertex Nodes
+      // Swing Vertex Nodes (Dynamic continuous price projection)
       swingPoints.forEach((pt) => {
-        const sPos = worldToScreen(pt.gridCol * baseUnit, pt.gridRow * baseUnit);
+        const sPos = worldToScreen(pt.gridCol * baseUnit, priceToWorldY(pt.price));
         if (sPos.x < -50 || sPos.x > width + 50 || sPos.y < -50 || sPos.y > height + 50) return;
 
         const nodeSize = 6;
@@ -610,7 +616,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         if (chartMode === "SWING_STEP") {
           ctx.fillStyle = "#1E2A24";
           ctx.font = "600 10px 'Courier New', monospace";
-          const tag = `[${pt.gridCol},${pt.gridRow}] \u20B9${pt.price.toLocaleString("en-IN")}`;
+          const dynamicRow = Math.round((pt.price - basePrice) / pricePerUnit);
+          const tag = `[${pt.gridCol},${dynamicRow}] \u20B9${pt.price.toLocaleString("en-IN")}`;
           const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
           ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
         }
@@ -629,6 +636,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     showBottomAxis,
     candles,
     swingPoints,
+    basePrice,
+    pricePerUnit,
     priceToWorldY,
     worldToScreen,
   ]);
