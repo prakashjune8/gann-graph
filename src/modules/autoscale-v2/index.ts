@@ -8,3 +8,4 @@ export * from "./SwingVisualizerModule";
 export * from "./RatioEngine";
 export * from "./HistoricSeedEngine";
 export * from "./GenesisVisualizerModule";
+export * from "./OctaveMultiplier";
