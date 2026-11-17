@@ -132,8 +132,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const scaledMajor = majorUnit * currentZoom;
       const scaledMinor = baseUnit * currentZoom;
 
-      const physicalTileW = Math.max(8, Math.round(scaledMajor * currentDpr));
-      const physicalTileH = Math.max(8, Math.round(scaledMajor * currentDpr));
+      const exactTileW = majorUnit * currentZoom * currentDpr;
+      const physicalTileW = Math.max(8, Math.round(exactTileW));
+      const physicalTileH = physicalTileW;
       tile.width = physicalTileW;
       tile.height = physicalTileH;
 
@@ -194,27 +195,42 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const roundPanX = Math.round(pan.x);
     const roundPanY = Math.round(pan.y);
 
-    // 1. Hardware Pattern Blit via Offscreen Master Tile (Integer Clamped Offsets)
+    // 1. Hardware Pattern Blit via Offscreen Master Tile with Fractional Drift Compensation (GAMMA-P0-01)
+    const exactTileW = majorUnit * zoom * dpr;
     const tile = getGridTile(zoom, dpr);
+    const physicalTileW = tile.width || Math.max(8, Math.round(exactTileW));
+    const scaleComp = exactTileW / physicalTileW;
+
+    ctx.save();
+    ctx.scale(scaleComp, scaleComp);
+
     const pattern = ctx.createPattern(tile, "repeat");
     if (pattern) {
       if (pattern.setTransform) {
-        const matrix = new DOMMatrix().translate(roundPanX, roundPanY).scale(1 / dpr, 1 / dpr);
+        const matrix = new DOMMatrix()
+          .translate(roundPanX / scaleComp, roundPanY / scaleComp)
+          .scale(1 / dpr, 1 / dpr);
         pattern.setTransform(matrix);
         ctx.fillStyle = pattern;
-        ctx.fillRect(0, 0, width, height);
+        ctx.fillRect(0, 0, width / scaleComp, height / scaleComp);
       } else {
         ctx.save();
-        ctx.translate(roundPanX, roundPanY);
+        ctx.translate(roundPanX / scaleComp, roundPanY / scaleComp);
         ctx.scale(1 / dpr, 1 / dpr);
         ctx.fillStyle = pattern;
-        ctx.fillRect(-roundPanX, -roundPanY, width * dpr, height * dpr);
+        ctx.fillRect(
+          -roundPanX / scaleComp,
+          -roundPanY / scaleComp,
+          (width * dpr) / scaleComp,
+          (height * dpr) / scaleComp
+        );
         ctx.restore();
       }
     } else {
       ctx.fillStyle = DRAFTING_THEME.paperBackground;
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillRect(0, 0, width / scaleComp, height / scaleComp);
     }
+    ctx.restore();
 
     // 2. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price) - Integer Clamped (2.0px stroke)
     ctx.lineWidth = 2.0;
