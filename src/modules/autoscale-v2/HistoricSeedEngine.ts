@@ -4,11 +4,9 @@
  *
  * Implements:
  * 1. Dual Historic Node Extraction: Identifies Absolute All-Time Low (ATL) and High (ATH).
- * 2. Bull Genesis Velocity: Forward 3-day swing scan from ATL to calculate initial cycle expansion velocity.
- * 3. Bear Genesis Velocity: Forward 3-day swing scan from ATH to calculate initial cycle contraction velocity.
- * 4. Dual Master Octave Arrays: Generates Rule of 8 octave arrays for both Bull and Bear regimes:
- *    [1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8, 1, 2, 4] * GenesisVelocity.
- * 5. Dual Harmonic Filter: Snaps any local velocity to the single closest master octave across both regimes.
+ * 2. Bull & Bear Genesis Sequences: Forward 3-day swing scans from ATL/ATH with strict column math.
+ * 3. Proof of the Seed: Validates whether genesis nodes align within 1% tolerance of 1/8th octave levels.
+ * 4. Master Octave Filtering & Projection: Canonical Rule of 8 arrays for geometric calibration.
  */
 
 import { CandleData } from "../../types/gann";
@@ -41,6 +39,46 @@ export interface HistoricExtremeNode {
   col: number;
   price: number;
   candle: CandleData;
+}
+
+export interface GenesisNode extends SwingNode {
+  label: string; // "ATL", "L1", "L2", "L3", "ATH", "H1", "H2", "H3"
+  indexInDataset: number;
+  deltaTFromAnchor: number; // Strict col math: node.col - anchor.col (Vulnerability A)
+  priceDeltaFromAnchor: number;
+  velocityFromAnchor: number;
+  isSynthesizedFallback?: boolean; // Set true if generated via IPO fallback (Vulnerability B)
+}
+
+export interface SeedValidationMatch {
+  nodeLabel: string;
+  nodePrice: number;
+  closestOctavePrice: number;
+  octaveFractionName: string;
+  deviationPercent: number;
+  isVerifiedWithinTolerance: boolean;
+}
+
+export interface SeedValidationResult {
+  seedPrice: number;
+  tolerance: number;
+  isValid: boolean;
+  matchRatio: number;
+  matches: SeedValidationMatch[];
+}
+
+export interface GenesisExtractionResult {
+  atlNode: GenesisNode;
+  athNode: GenesisNode;
+  bullNodes: GenesisNode[]; // [L1, L2, L3]
+  bearNodes: GenesisNode[]; // [H1, H2, H3]
+  allBullNodes: GenesisNode[]; // [ATL, L1, L2, L3]
+  allBearNodes: GenesisNode[]; // [ATH, H1, H2, H3]
+  bullProof: SeedValidationResult;
+  bearProof: SeedValidationResult;
+  ruleOf8BullGrid: { fraction: string; price: number }[];
+  bullGenesisVelocity: number;
+  bearGenesisVelocity: number;
 }
 
 export interface DualGenesisResult {
@@ -139,38 +177,119 @@ export function calculateMasterOctaves(historicLow: number): MasterOctaves {
 }
 
 /**
- * Extracts Dual Historic Extreme Nodes (ATL & ATH) with indices, columns, and prices,
- * executes forward Gann 3-day swing detections, and derives the Bull and Bear Genesis velocities.
+ * Proof Validation: Proof of the Seed
+ * Calculates the 1/8th fractions of the seedPrice (both relative expansions: seed + k*(seed/8)
+ * and direct harmonic fractions: k*(seed/8)).
+ * Checks if each node's price falls within the specified tolerance (default 1% = 0.01)
+ * of any canonical 1/8th grid line.
  *
- * Bull Genesis: Slice from Absolute_ATL forward. Extract first 3 consecutive HH nodes.
- * bullGenesisVelocity = (HH3.price - ATL.price) / (HH3.col - ATL.col)
- *
- * Bear Genesis: Slice from Absolute_ATH forward. Extract first 3 consecutive LL nodes.
- * bearGenesisVelocity = (ATH.price - LL3.price) / (LL3.col - ATH.col)
+ * @param seedPrice The historic anchor price (ATL or ATH)
+ * @param nodes The sequence of subsequent genesis swing nodes
+ * @param tolerance Relative error threshold (default 0.01 = 1%)
+ * @returns SeedValidationResult detailing accuracy and matching octave fractions
+ */
+export function validateSeed(
+  seedPrice: number,
+  nodes: (SwingNode | GenesisNode)[],
+  tolerance: number = 0.01
+): SeedValidationResult {
+  const safeSeed = Math.max(0.0001, seedPrice);
+  const baseVibration = safeSeed / 8;
+
+  // Build target 1/8th octave levels
+  // 1. Direct fractional levels: k * (seed / 8) for k = 1..16
+  // 2. Expansion levels: seed + k * (seed / 8) for k = 1..8
+  const octaveLevels: Array<{ name: string; price: number }> = [];
+
+  for (let k = 1; k <= 16; k++) {
+    const fractionName = `${k}/8 Seed (${(k / 8).toFixed(3)})`;
+    octaveLevels.push({ name: fractionName, price: k * baseVibration });
+  }
+
+  for (let k = 1; k <= 8; k++) {
+    const fractionName = `Seed + ${k}/8 (${(1 + k / 8).toFixed(3)})`;
+    octaveLevels.push({ name: fractionName, price: safeSeed + k * baseVibration });
+  }
+
+  const matches: SeedValidationMatch[] = [];
+  let verifiedCount = 0;
+
+  for (const node of nodes) {
+    let closestLevel = octaveLevels[0];
+    let minDiff = Infinity;
+
+    for (const lvl of octaveLevels) {
+      const diff = Math.abs(node.price - lvl.price);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestLevel = lvl;
+      }
+    }
+
+    const deviationPercent = (minDiff / closestLevel.price) * 100;
+    const isVerified = minDiff / closestLevel.price <= tolerance;
+    if (isVerified) verifiedCount++;
+
+    matches.push({
+      nodeLabel: (node as GenesisNode).label || `${node.type}@Col${node.col}`,
+      nodePrice: node.price,
+      closestOctavePrice: Math.round(closestLevel.price * 100) / 100,
+      octaveFractionName: closestLevel.name,
+      deviationPercent: Math.round(deviationPercent * 100) / 100,
+      isVerifiedWithinTolerance: isVerified,
+    });
+  }
+
+  const total = Math.max(1, nodes.length);
+  const matchRatio = verifiedCount / total;
+
+  return {
+    seedPrice: safeSeed,
+    tolerance,
+    isValid: matchRatio >= 0.5, // Seed is considered mathematically proven if >= 50% match
+    matchRatio: Math.round(matchRatio * 100) / 100,
+    matches,
+  };
+}
+
+/**
+ * Extracts Genesis Nodes (Bull: ATL + L1, L2, L3; Bear: ATH + H1, H2, H3),
+ * enforces strict column difference math (deltaT = node.col - anchor.col),
+ * handles short datasets / IPO fallbacks (Vulnerability B),
+ * and validates the mathematical "Proof of the Seed".
  *
  * @param fullDataset Full array of historical candlestick data
- * @returns DualGenesisResult containing extreme nodes, swing sequences, velocities, and octave arrays
+ * @returns GenesisExtractionResult containing all Genesis nodes, proof reports, and Rule of 8 grids
  */
-export function calculateDualGenesisVelocities(fullDataset: CandleData[]): DualGenesisResult {
+export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractionResult {
   if (!fullDataset || fullDataset.length === 0) {
-    const defaultExtreme: HistoricExtremeNode = {
-      index: 0,
+    const dummyNode: GenesisNode = {
       col: 0,
-      price: 0,
-      candle: { id: "0", timestamp: "", open: 0, high: 0, low: 0, close: 0, volume: 0, gridCol: 0 },
+      price: 100,
+      type: "LL",
+      label: "ATL",
+      date: "",
+      indexInDataset: 0,
+      deltaTFromAnchor: 0,
+      priceDeltaFromAnchor: 0,
+      velocityFromAnchor: 1.0,
     };
     return {
-      atl: defaultExtreme,
-      ath: defaultExtreme,
+      atlNode: dummyNode,
+      athNode: { ...dummyNode, label: "ATH", type: "HH" },
       bullNodes: [],
       bearNodes: [],
+      allBullNodes: [dummyNode],
+      allBearNodes: [{ ...dummyNode, label: "ATH", type: "HH" }],
+      bullProof: { seedPrice: 100, tolerance: 0.01, isValid: false, matchRatio: 0, matches: [] },
+      bearProof: { seedPrice: 100, tolerance: 0.01, isValid: false, matchRatio: 0, matches: [] },
+      ruleOf8BullGrid: [],
       bullGenesisVelocity: 1.0,
       bearGenesisVelocity: 1.0,
-      bullOctaves: DUAL_OCTAVE_RATIOS.map((r) => r * 1.0),
-      bearOctaves: DUAL_OCTAVE_RATIOS.map((r) => r * 1.0),
     };
   }
 
+  // 1. Locate absolute ATL and ATH
   let minLow = Infinity;
   let maxHigh = -Infinity;
   let atlIdx = 0;
@@ -188,74 +307,207 @@ export function calculateDualGenesisVelocities(fullDataset: CandleData[]): DualG
     }
   }
 
+  const atlCandle = fullDataset[atlIdx];
+  const athCandle = fullDataset[athIdx];
+
+  const atlNode: GenesisNode = {
+    col: atlCandle.gridCol,
+    price: atlCandle.low,
+    type: "LL",
+    label: "ATL",
+    date: atlCandle.timestamp,
+    indexInDataset: atlIdx,
+    deltaTFromAnchor: 0,
+    priceDeltaFromAnchor: 0,
+    velocityFromAnchor: 0,
+  };
+
+  const athNode: GenesisNode = {
+    col: athCandle.gridCol,
+    price: athCandle.high,
+    type: "HH",
+    label: "ATH",
+    date: athCandle.timestamp,
+    indexInDataset: athIdx,
+    deltaTFromAnchor: 0,
+    priceDeltaFromAnchor: 0,
+    velocityFromAnchor: 0,
+  };
+
+  // 2. BULL SEED: Slice from ATL forward. Run detectGannSwings(..., 3).
+  // Extract first 3 subsequent Higher Lows (LL nodes with prices > ATL).
+  const bullSlice = fullDataset.slice(atlIdx);
+  const bullSwings = detectGannSwings(bullSlice, 3);
+  // Filter for valid Higher Lows (LL nodes with price > ATL.price)
+  const candidateLows = bullSwings.filter((s) => s.type === "LL" && s.price > atlNode.price);
+
+  const bullNodes: GenesisNode[] = [];
+  const bullLabels = ["L1", "L2", "L3"];
+
+  for (let i = 0; i < Math.min(3, candidateLows.length); i++) {
+    const swing = candidateLows[i];
+    // Strict column math: deltaT = node.col - anchor.col (Vulnerability A)
+    const deltaT = Math.max(1, swing.col - atlNode.col);
+    const priceDelta = Math.abs(swing.price - atlNode.price);
+    bullNodes.push({
+      ...swing,
+      label: bullLabels[i],
+      indexInDataset: atlIdx + bullSlice.findIndex((c) => c.gridCol === swing.col),
+      deltaTFromAnchor: deltaT,
+      priceDeltaFromAnchor: priceDelta,
+      velocityFromAnchor: priceDelta / deltaT,
+    });
+  }
+
+  // Vulnerability B Remediation: IPO / Short Dataset Fallback for Bull Nodes
+  if (bullNodes.length < 3) {
+    const remainingCount = 3 - bullNodes.length;
+    const baseCol = bullNodes.length > 0 ? bullNodes[bullNodes.length - 1].col : atlNode.col;
+    const basePrice = bullNodes.length > 0 ? bullNodes[bullNodes.length - 1].price : atlNode.price;
+    const colStep = 4; // Standard minor octave column step
+    const priceStep = Math.max(1, (athNode.price - atlNode.price) / 16);
+
+    for (let k = 0; k < remainingCount; k++) {
+      const idx = bullNodes.length;
+      const synthCol = baseCol + (k + 1) * colStep;
+      const synthPrice = basePrice + (k + 1) * priceStep;
+      const deltaT = Math.max(1, synthCol - atlNode.col);
+      const priceDelta = Math.abs(synthPrice - atlNode.price);
+
+      bullNodes.push({
+        col: synthCol,
+        price: Math.round(synthPrice * 100) / 100,
+        type: "LL",
+        label: bullLabels[idx],
+        date: `Synthetic-${bullLabels[idx]}`,
+        indexInDataset: fullDataset.length - 1,
+        deltaTFromAnchor: deltaT,
+        priceDeltaFromAnchor: priceDelta,
+        velocityFromAnchor: priceDelta / deltaT,
+        isSynthesizedFallback: true,
+      });
+    }
+  }
+
+  // 3. BEAR SEED: Slice from ATH forward. Run detectGannSwings(..., 3).
+  // Extract first 3 subsequent Lower Highs (HH nodes with prices < ATH).
+  const bearSlice = fullDataset.slice(athIdx);
+  const bearSwings = detectGannSwings(bearSlice, 3);
+  const candidateHighs = bearSwings.filter((s) => s.type === "HH" && s.price < athNode.price);
+
+  const bearNodes: GenesisNode[] = [];
+  const bearLabels = ["H1", "H2", "H3"];
+
+  for (let i = 0; i < Math.min(3, candidateHighs.length); i++) {
+    const swing = candidateHighs[i];
+    // Strict column math: deltaT = node.col - anchor.col (Vulnerability A)
+    const deltaT = Math.max(1, swing.col - athNode.col);
+    const priceDelta = Math.abs(athNode.price - swing.price);
+    bearNodes.push({
+      ...swing,
+      label: bearLabels[i],
+      indexInDataset: athIdx + bearSlice.findIndex((c) => c.gridCol === swing.col),
+      deltaTFromAnchor: deltaT,
+      priceDeltaFromAnchor: priceDelta,
+      velocityFromAnchor: priceDelta / deltaT,
+    });
+  }
+
+  // Vulnerability B Remediation: IPO / Short Dataset Fallback for Bear Nodes
+  if (bearNodes.length < 3) {
+    const remainingCount = 3 - bearNodes.length;
+    const baseCol = bearNodes.length > 0 ? bearNodes[bearNodes.length - 1].col : athNode.col;
+    const basePrice = bearNodes.length > 0 ? bearNodes[bearNodes.length - 1].price : athNode.price;
+    const colStep = 4;
+    const priceStep = Math.max(1, (athNode.price - atlNode.price) / 16);
+
+    for (let k = 0; k < remainingCount; k++) {
+      const idx = bearNodes.length;
+      const synthCol = baseCol + (k + 1) * colStep;
+      const synthPrice = Math.max(1, basePrice - (k + 1) * priceStep);
+      const deltaT = Math.max(1, synthCol - athNode.col);
+      const priceDelta = Math.abs(athNode.price - synthPrice);
+
+      bearNodes.push({
+        col: synthCol,
+        price: Math.round(synthPrice * 100) / 100,
+        type: "HH",
+        label: bearLabels[idx],
+        date: `Synthetic-${bearLabels[idx]}`,
+        indexInDataset: fullDataset.length - 1,
+        deltaTFromAnchor: deltaT,
+        priceDeltaFromAnchor: priceDelta,
+        velocityFromAnchor: priceDelta / deltaT,
+        isSynthesizedFallback: true,
+      });
+    }
+  }
+
+  // 4. Calculate Genesis Velocities
+  const l3 = bullNodes[2];
+  const h3 = bearNodes[2];
+  const bullGenesisVelocity = Math.max(0.0001, (l3.price - atlNode.price) / Math.max(1, l3.col - atlNode.col));
+  const bearGenesisVelocity = Math.max(0.0001, (athNode.price - h3.price) / Math.max(1, h3.col - athNode.col));
+
+  // 5. Proof of the Seed validation
+  const bullProof = validateSeed(atlNode.price, bullNodes, 0.01);
+  const bearProof = validateSeed(athNode.price, bearNodes, 0.01);
+
+  // 6. Rule of 8 Grid Levels for ATL: 1/8th, 1/4 (2/8), 3/8 price levels
+  const atlEighth = atlNode.price / 8;
+  const ruleOf8BullGrid = [
+    { fraction: "ATL + 1/8", price: Math.round((atlNode.price + 1 * atlEighth) * 100) / 100 },
+    { fraction: "ATL + 2/8 (1/4)", price: Math.round((atlNode.price + 2 * atlEighth) * 100) / 100 },
+    { fraction: "ATL + 3/8", price: Math.round((atlNode.price + 3 * atlEighth) * 100) / 100 },
+    { fraction: "ATL + 4/8 (1/2)", price: Math.round((atlNode.price + 4 * atlEighth) * 100) / 100 },
+  ];
+
+  return {
+    atlNode,
+    athNode,
+    bullNodes,
+    bearNodes,
+    allBullNodes: [atlNode, ...bullNodes],
+    allBearNodes: [athNode, ...bearNodes],
+    bullProof,
+    bearProof,
+    ruleOf8BullGrid,
+    bullGenesisVelocity: Math.round(bullGenesisVelocity * 10000) / 10000,
+    bearGenesisVelocity: Math.round(bearGenesisVelocity * 10000) / 10000,
+  };
+}
+
+/**
+ * Extracts Dual Historic Extreme Nodes (ATL & ATH) with indices, columns, and prices,
+ * executes forward Gann 3-day swing detections, and derives the Bull and Bear Genesis velocities.
+ */
+export function calculateDualGenesisVelocities(fullDataset: CandleData[]): DualGenesisResult {
+  const genesis = extractGenesisNodes(fullDataset);
+
   const atl: HistoricExtremeNode = {
-    index: atlIdx,
-    col: fullDataset[atlIdx].gridCol,
-    price: fullDataset[atlIdx].low,
-    candle: fullDataset[atlIdx],
+    index: genesis.atlNode.indexInDataset,
+    col: genesis.atlNode.col,
+    price: genesis.atlNode.price,
+    candle: genesis.atlNode as any,
   };
 
   const ath: HistoricExtremeNode = {
-    index: athIdx,
-    col: fullDataset[athIdx].gridCol,
-    price: fullDataset[athIdx].high,
-    candle: fullDataset[athIdx],
+    index: genesis.athNode.indexInDataset,
+    col: genesis.athNode.col,
+    price: genesis.athNode.price,
+    candle: genesis.athNode as any,
   };
 
-  // 1. BULL GENESIS: Slice from Absolute_ATL forward and run detectGannSwings(..., 3)
-  const bullSlice = fullDataset.slice(atl.index);
-  const bullSwings = detectGannSwings(bullSlice, 3);
-  const bullHHNodes = bullSwings.filter((s) => s.type === "HH");
-  const first3HH = bullHHNodes.slice(0, 3);
-
-  let bullGenesisVelocity: number;
-  if (first3HH.length >= 3) {
-    const hh3 = first3HH[2];
-    const deltaCol = Math.max(1, hh3.col - atl.col);
-    bullGenesisVelocity = Math.max(0.0001, (hh3.price - atl.price) / deltaCol);
-  } else if (first3HH.length > 0) {
-    const lastHH = first3HH[first3HH.length - 1];
-    const deltaCol = Math.max(1, lastHH.col - atl.col);
-    bullGenesisVelocity = Math.max(0.0001, (lastHH.price - atl.price) / deltaCol);
-  } else if (ath.col > atl.col) {
-    bullGenesisVelocity = Math.max(0.0001, (ath.price - atl.price) / Math.max(1, ath.col - atl.col));
-  } else {
-    bullGenesisVelocity = Math.max(0.0001, atl.price / 8);
-  }
-
-  // 2. BEAR GENESIS: Slice from Absolute_ATH forward and run detectGannSwings(..., 3)
-  const bearSlice = fullDataset.slice(ath.index);
-  const bearSwings = detectGannSwings(bearSlice, 3);
-  const bearLLNodes = bearSwings.filter((s) => s.type === "LL");
-  const first3LL = bearLLNodes.slice(0, 3);
-
-  let bearGenesisVelocity: number;
-  if (first3LL.length >= 3) {
-    const ll3 = first3LL[2];
-    const deltaCol = Math.max(1, ll3.col - ath.col);
-    bearGenesisVelocity = Math.max(0.0001, (ath.price - ll3.price) / deltaCol);
-  } else if (first3LL.length > 0) {
-    const lastLL = first3LL[first3LL.length - 1];
-    const deltaCol = Math.max(1, lastLL.col - ath.col);
-    bearGenesisVelocity = Math.max(0.0001, (ath.price - lastLL.price) / deltaCol);
-  } else if (atl.col > ath.col) {
-    bearGenesisVelocity = Math.max(0.0001, (ath.price - atl.price) / Math.max(1, atl.col - ath.col));
-  } else {
-    bearGenesisVelocity = Math.max(0.0001, ath.price / 8);
-  }
-
-  // 3. DUAL MASTER OCTAVE ARRAYS
-  // [1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8, 1, 2, 4] * GenesisVelocity
-  const bullOctaves = DUAL_OCTAVE_RATIOS.map((r) => Math.round(r * bullGenesisVelocity * 10000) / 10000);
-  const bearOctaves = DUAL_OCTAVE_RATIOS.map((r) => Math.round(r * bearGenesisVelocity * 10000) / 10000);
+  const bullOctaves = DUAL_OCTAVE_RATIOS.map((r) => Math.round(r * genesis.bullGenesisVelocity * 10000) / 10000);
+  const bearOctaves = DUAL_OCTAVE_RATIOS.map((r) => Math.round(r * genesis.bearGenesisVelocity * 10000) / 10000);
 
   return {
     atl,
     ath,
-    bullNodes: first3HH,
-    bearNodes: first3LL,
-    bullGenesisVelocity: Math.round(bullGenesisVelocity * 10000) / 10000,
-    bearGenesisVelocity: Math.round(bearGenesisVelocity * 10000) / 10000,
+    bullNodes: genesis.bullNodes,
+    bearNodes: genesis.bearNodes,
+    bullGenesisVelocity: genesis.bullGenesisVelocity,
+    bearGenesisVelocity: genesis.bearGenesisVelocity,
     bullOctaves,
     bearOctaves,
   };
@@ -263,14 +515,7 @@ export function calculateDualGenesisVelocities(fullDataset: CandleData[]): DualG
 
 /**
  * Dual Harmonic Filter:
- * Compares localVelocity against both bullOctaves and bearOctaves arrays:
- * bullOctaves = [1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8, 1, 2, 4] * bullGenesisVelocity
- * bearOctaves = [1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8, 1, 2, 4] * bearGenesisVelocity
- *
- * @param localVelocity The local swing or chart velocity to align
- * @param bullV Bull Genesis velocity (bullGenesisVelocity)
- * @param bearV Bear Genesis velocity (bearGenesisVelocity)
- * @returns The single master fraction value that has the tightest mathematical proximity (lowest variance)
+ * Compares localVelocity against both bullOctaves and bearOctaves arrays.
  */
 export function snapToMasterOctave(localVelocity: number, bullV: number, bearV: number): number {
   const detail = snapToMasterOctaveDetail(localVelocity, bullV, bearV);
@@ -278,8 +523,7 @@ export function snapToMasterOctave(localVelocity: number, bullV: number, bearV: 
 }
 
 /**
- * Detailed variant of snapToMasterOctave providing structural metadata,
- * including which market regime (BULL vs BEAR) and octave ratio was selected.
+ * Detailed variant of snapToMasterOctave providing structural metadata.
  */
 export function snapToMasterOctaveDetail(
   localVelocity: number,
