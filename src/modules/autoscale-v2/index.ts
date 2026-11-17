@@ -9,3 +9,4 @@ export * from "./RatioEngine";
 export * from "./HistoricSeedEngine";
 export * from "./GenesisVisualizerModule";
 export * from "./OctaveMultiplier";
+export * from "./ViewportScalerModule";

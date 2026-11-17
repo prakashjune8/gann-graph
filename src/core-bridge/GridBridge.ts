@@ -77,7 +77,7 @@ export interface IGridBridge {
   setCandles(candles: CandleData[]): void;
   setSwingPoints(points: SwingPoint[]): void;
   addSwingPoint(point: SwingPoint): void;
-  calibratePriceScale(candles: CandleData[]): void;
+  calibratePriceScale(input: CandleData[] | number): void;
   clearAllData(): void;
   loadSampleDataset(): void;
 
@@ -233,8 +233,8 @@ class CoreGridBridge implements IGridBridge {
     useGridState.getState().addSwingPoint(point);
   }
 
-  calibratePriceScale(candles: CandleData[]): void {
-    useGridState.getState().calibratePriceScale(candles);
+  calibratePriceScale(input: CandleData[] | number): void {
+    useGridState.getState().calibratePriceScale(input);
   }
 
   clearAllData(): void {

@@ -143,7 +143,7 @@ export interface GridState {
   toggleCrosshair: () => void;
 
   // Data Actions
-  calibratePriceScale: (candles: CandleData[]) => void;
+  calibratePriceScale: (input: CandleData[] | number) => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
   addSwingPoint: (point: SwingPoint) => void;
@@ -343,7 +343,15 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
 
   // Gann Harmonic Auto-Scale Calibrator (Sprint 1)
-  calibratePriceScale: (candles: CandleData[]) => {
+  calibratePriceScale: (input: CandleData[] | number) => {
+    if (typeof input === "number") {
+      if (Number.isFinite(input) && input > 0) {
+        set({ pricePerUnit: input });
+      }
+      return;
+    }
+
+    const candles = input;
     if (!candles || candles.length === 0) return;
 
     let maxPrice = -Infinity;
