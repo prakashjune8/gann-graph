@@ -71,30 +71,94 @@ export function parseBrokerCsv(csvContent: string): BrokerCandle[] {
 }
 
 /**
+ * Parses Indian date strings into UTC epoch timestamps aligned to Indian Standard Time (IST, UTC+05:30).
+ * Specifically supports DD-MM-YYYY and DD/MM/YYYY formats (with optional HH:mm[:ss]),
+ * as well as standard ISO YYYY-MM-DD.
+ * Forces date creation using explicit UTC inputs offset by IST:
+ * Date.UTC(year, month - 1, day, -5, -30, 0)
+ */
+export function parseIndianDateToTimestamp(dateStr: string): number {
+  if (!dateStr || typeof dateStr !== "string") return 0;
+  const trimmed = dateStr.trim();
+
+  // Strict regex for DD-MM-YYYY or DD/MM/YYYY with optional time
+  const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
+  const matchDmy = trimmed.match(ddmmyyyyRegex);
+  if (matchDmy) {
+    const day = parseInt(matchDmy[1], 10);
+    const month = parseInt(matchDmy[2], 10);
+    const year = parseInt(matchDmy[3], 10);
+    const hours = matchDmy[4] ? parseInt(matchDmy[4], 10) : 0;
+    const minutes = matchDmy[5] ? parseInt(matchDmy[5], 10) : 0;
+    const seconds = matchDmy[6] ? parseInt(matchDmy[6], 10) : 0;
+
+    // Force date creation using explicit UTC inputs offset by IST (UTC+05:30)
+    // Daily bars with hours=0, minutes=0 map directly to Date.UTC(year, month - 1, day, -5, -30, 0)
+    return Date.UTC(year, month - 1, day, hours - 5, minutes - 30, seconds);
+  }
+
+  // Fallback regex for ISO YYYY-MM-DD or YYYY/MM/DD with optional time
+  const yyyymmddRegex = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/;
+  const matchYmd = trimmed.match(yyyymmddRegex);
+  if (matchYmd) {
+    const year = parseInt(matchYmd[1], 10);
+    const month = parseInt(matchYmd[2], 10);
+    const day = parseInt(matchYmd[3], 10);
+    const hours = matchYmd[4] ? parseInt(matchYmd[4], 10) : 0;
+    const minutes = matchYmd[5] ? parseInt(matchYmd[5], 10) : 0;
+    const seconds = matchYmd[6] ? parseInt(matchYmd[6], 10) : 0;
+
+    return Date.UTC(year, month - 1, day, hours - 5, minutes - 30, seconds);
+  }
+
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
  * Converts raw Broker candles into CandleData with automatic pattern detection
- * and assigns them sequentially to K&E grid columns (step = 2 for spacing).
+ * and assigns them to discrete K&E grid columns using True Natural Calendar Time.
+ * In Natural Calendar mode, gridCol = Math.round((candleTime - anchorTime) / 86400000),
+ * physically preserving weekends and market holidays as empty columns.
  */
 export function convertBrokerCandlesToCandleData(
   brokerCandles: BrokerCandle[],
   columnSpacing: number = 2
 ): CandleData[] {
-  const raw: CandleData[] = brokerCandles.map((c, i) => ({
-    id: `bc-${i}`,
-    timestamp: c.timestamp,
-    open: c.open,
-    high: c.high,
-    low: c.low,
-    close: c.close,
-    volume: c.volume,
-    gridCol: i * columnSpacing,
-  }));
+  if (brokerCandles.length === 0) return [];
+
+  const anchorTime = parseIndianDateToTimestamp(brokerCandles[0].timestamp);
+  const hasValidAnchor = anchorTime > 0;
+
+  const raw: CandleData[] = brokerCandles.map((c, i) => {
+    let gridCol = i * columnSpacing;
+
+    if (hasValidAnchor) {
+      const candleTime = parseIndianDateToTimestamp(c.timestamp);
+      if (candleTime > 0) {
+        const dayOffset = Math.round((candleTime - anchorTime) / 86400000);
+        gridCol = Math.max(0, dayOffset);
+      }
+    }
+
+    return {
+      id: `bc-${i}`,
+      timestamp: c.timestamp,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      volume: c.volume,
+      gridCol,
+    };
+  });
 
   return identifyCandlestickPatterns(raw);
 }
 
 /**
  * Converts raw price candles into Gann 2-Bar Swing Indicator Points
- * and locks them to discrete K&E 8x8 grid coordinates.
+ * and locks them to discrete K&E 8x8 grid coordinates aligned with Natural Calendar Time.
  */
 export function extractGannSwings(
   candles: BrokerCandle[],
@@ -105,8 +169,23 @@ export function extractGannSwings(
   if (candles.length < 3) return [];
 
   // Guard against division by zero (Audit Finding 1.5 Remediation)
-  const safeDivisor =
-    pricePerGridUnit > 0 ? pricePerGridUnit : basePrice > 0 ? basePrice / 100 : 1.0;
+  const safeDivisor = Math.max(
+    0.0001,
+    pricePerGridUnit > 0 ? pricePerGridUnit : basePrice > 0 ? basePrice / 100 : 1.0
+  );
+
+  const anchorTime = parseIndianDateToTimestamp(candles[0].timestamp);
+  const hasValidAnchor = anchorTime > 0;
+
+  const getColForIndex = (idx: number) => {
+    if (hasValidAnchor) {
+      const cTime = parseIndianDateToTimestamp(candles[idx].timestamp);
+      if (cTime > 0) {
+        return Math.max(0, Math.round((cTime - anchorTime) / 86400000));
+      }
+    }
+    return idx * columnSpacing;
+  };
 
   const swings: SwingPoint[] = [];
   let trend: "UP" | "DOWN" = "UP";
@@ -119,7 +198,7 @@ export function extractGannSwings(
           id: `swing-${index}`,
           timeStr: c.timestamp,
           price: candles[index - 1].high,
-          gridCol: (index - 1) * columnSpacing,
+          gridCol: getColForIndex(index - 1),
           gridRow: Math.round((candles[index - 1].high - basePrice) / safeDivisor),
           type: "SWING_HIGH",
           label: `Peak ₹${candles[index - 1].high}`,
@@ -132,7 +211,7 @@ export function extractGannSwings(
           id: `swing-${index}`,
           timeStr: c.timestamp,
           price: candles[index - 1].low,
-          gridCol: (index - 1) * columnSpacing,
+          gridCol: getColForIndex(index - 1),
           gridRow: Math.round((candles[index - 1].low - basePrice) / safeDivisor),
           type: "SWING_LOW",
           label: `Bottom ₹${candles[index - 1].low}`,

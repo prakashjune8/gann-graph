@@ -143,6 +143,7 @@ export interface GridState {
   toggleCrosshair: () => void;
 
   // Data Actions
+  calibratePriceScale: (candles: CandleData[]) => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
   addSwingPoint: (point: SwingPoint) => void;
@@ -341,11 +342,59 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleAxisTransparency: () => set((s) => ({ isAxisTransparent: !s.isAxisTransparent })),
   toggleCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
 
+  // Gann Harmonic Auto-Scale Calibrator (Sprint 1)
+  calibratePriceScale: (candles: CandleData[]) => {
+    if (!candles || candles.length === 0) return;
+
+    let maxPrice = -Infinity;
+    let minPrice = Infinity;
+
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i];
+      if (c.high > maxPrice) maxPrice = c.high;
+      if (c.low < minPrice) minPrice = c.low;
+    }
+
+    if (!Number.isFinite(maxPrice) || !Number.isFinite(minPrice) || maxPrice <= 0) {
+      return;
+    }
+
+    // 0.1% Harmonic Snapper: rawScale = maxPrice * 0.001
+    const rawScale = maxPrice * 0.001;
+    const harmonics = [0.1, 0.125, 0.25, 0.5, 1, 2.5, 5, 10, 12.5, 25, 50, 100, 250, 500, 1000];
+
+    // Find closest value in harmonics array to rawScale
+    let closestHarmonic = harmonics[0];
+    let minDiff = Math.abs(rawScale - harmonics[0]);
+    for (let i = 1; i < harmonics.length; i++) {
+      const diff = Math.abs(rawScale - harmonics[i]);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestHarmonic = harmonics[i];
+      }
+    }
+
+    // Cleanly anchor basePrice to the nearest major 1-inch block (8 minor squares) below minPrice
+    const harmonicBlock = closestHarmonic * 8;
+    const calculatedBasePrice = Math.max(0, Math.floor(minPrice / harmonicBlock) * harmonicBlock);
+
+    set({
+      pricePerUnit: closestHarmonic,
+      basePrice: calculatedBasePrice,
+    });
+  },
+
   setCandles: (candles) => {
+    if (candles.length > 0) {
+      get().calibratePriceScale(candles);
+    }
     const count = candles.filter((c) => c.pattern).length;
     set({ candles, patternCount: count });
   },
   setDataset: (candles) => {
+    if (candles.length > 0) {
+      get().calibratePriceScale(candles);
+    }
     const count = candles.filter((c) => c.pattern).length;
     set({ candles, patternCount: count });
   },
@@ -381,13 +430,15 @@ export const useGridState = create<GridState>((set, get) => ({
   // Price (in Rupees) -> World Y (in pixels)
   priceToWorldY: (price: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
-    return ((price - basePrice) / pricePerUnit) * baseUnit;
+    const safeDivisor = Math.max(0.0001, pricePerUnit);
+    return ((price - basePrice) / safeDivisor) * baseUnit;
   },
 
   // World Y (in pixels) -> Price (in Rupees)
   worldYToPrice: (worldY: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
-    return basePrice + (worldY / baseUnit) * pricePerUnit;
+    const safeDivisor = Math.max(0.0001, pricePerUnit);
+    return basePrice + (worldY / baseUnit) * safeDivisor;
   },
 
   // Snap continuous world coordinates to nearest K&E baseUnit intersection using strict integer multiplier
