@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useGridState } from "../store/useGridState";
 import { GridTheme } from "../types/gann";
 import { verifyKeEAspectRatio, auditCanvasBackingStore } from "../utils/ratioSentinel";
@@ -36,10 +36,18 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   showGannRay45 = true,
 }) => {
   // Multi-Canvas 4-Tier Layer Refs (Audits 4.1, 4.2 & 4.3 Architecture)
+  const containerRef = useRef<HTMLDivElement | null>(null);           // Parent Container (ResizeObserver Root)
   const gridCanvasRef = useRef<HTMLCanvasElement | null>(null);       // Layer 1 (z-index: 10): Grid Pattern & Zero Axes
   const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);      // Layer 2 (z-index: 20): Candlesticks, Volume, Swings
   const rulerCanvasRef = useRef<HTMLCanvasElement | null>(null);      // Layer 3 (z-index: 25): Static 4-Sided Axis Tracks & Junctions
   const crosshairCanvasRef = useRef<HTMLCanvasElement | null>(null);  // Layer 4 (z-index: 30): Precision Crosshair (Dirty-Rect)
+
+  // Hardware Device Pixel Ratio (DPR) & Logical Viewport State
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number; dpr: number }>({
+    width: typeof window !== "undefined" ? window.innerWidth : 1440,
+    height: typeof window !== "undefined" ? window.innerHeight : 900,
+    dpr: typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1,
+  });
 
   // Subscribe to Zustand state
   const {
@@ -84,6 +92,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   // Master Offscreen Canvas Pattern Tile for K&E 8x8 Grid (Audit 4.1 Optimization)
   const tileCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cachedZoomRef = useRef<number>(-1);
+  const cachedDprRef = useRef<number>(-1);
 
   // Dirty-Rectangle Tracker for Crosshair Layer (Audit 4.2 & 4.3 Optimization)
   const prevDirtyRectsRef = useRef<DirtyRect[] | null>(null);
@@ -99,35 +108,42 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
   /**
    * Generates or reuses an Offscreen Master Tile for the K&E 8x8 Grid.
-   * Crucial: Re-renders ONLY when zoom scale changes, NOT on pan.
+   * DPR-Aware Hardware Tiling: Re-renders ONLY when zoom scale or DPR changes, NOT on pan.
    */
   const getGridTile = useCallback(
-    (currentZoom: number) => {
+    (currentZoom: number, currentDpr: number) => {
       let tile = tileCanvasRef.current;
       if (!tile) {
         tile = document.createElement("canvas");
         tileCanvasRef.current = tile;
       }
 
-      if (cachedZoomRef.current === currentZoom && tile.width > 0) {
+      if (
+        cachedZoomRef.current === currentZoom &&
+        cachedDprRef.current === currentDpr &&
+        tile.width > 0
+      ) {
         return tile;
       }
 
       cachedZoomRef.current = currentZoom;
+      cachedDprRef.current = currentDpr;
       const scaledMajor = majorUnit * currentZoom;
       const scaledMinor = baseUnit * currentZoom;
 
-      const tw = Math.max(8, Math.round(scaledMajor));
-      const th = Math.max(8, Math.round(scaledMajor));
-      tile.width = tw;
-      tile.height = th;
+      const physicalTileW = Math.max(8, Math.round(scaledMajor * currentDpr));
+      const physicalTileH = Math.max(8, Math.round(scaledMajor * currentDpr));
+      tile.width = physicalTileW;
+      tile.height = physicalTileH;
 
       const tCtx = tile.getContext("2d", { alpha: false });
       if (!tCtx) return tile;
 
+      tCtx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
+
       // 1. Vintage Paper Background
       tCtx.fillStyle = DRAFTING_THEME.paperBackground;
-      tCtx.fillRect(0, 0, tw, th);
+      tCtx.fillRect(0, 0, scaledMajor, scaledMajor);
 
       // 2. Minor Grid Lines (interior 7 lines at 1/8th inch intervals)
       tCtx.lineWidth = 1;
@@ -136,9 +152,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       for (let i = 1; i < subdivisions; i++) {
         const pos = Math.round(i * scaledMinor) + 0.5;
         tCtx.moveTo(pos, 0);
-        tCtx.lineTo(pos, th);
+        tCtx.lineTo(pos, scaledMajor);
         tCtx.moveTo(0, pos);
-        tCtx.lineTo(tw, pos);
+        tCtx.lineTo(scaledMajor, pos);
       }
       tCtx.stroke();
 
@@ -147,9 +163,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       tCtx.strokeStyle = DRAFTING_THEME.majorGridLine;
       tCtx.beginPath();
       tCtx.moveTo(0.5, 0);
-      tCtx.lineTo(0.5, th);
+      tCtx.lineTo(0.5, scaledMajor);
       tCtx.moveTo(0, 0.5);
-      tCtx.lineTo(tw, 0.5);
+      tCtx.lineTo(scaledMajor, 0.5);
       tCtx.stroke();
 
       return tile;
@@ -175,19 +191,20 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // 1. Hardware Pattern Blit via Offscreen Master Tile
-    const tile = getGridTile(zoom);
+    const tile = getGridTile(zoom, dpr);
     const pattern = ctx.createPattern(tile, "repeat");
     if (pattern) {
       if (pattern.setTransform) {
-        const matrix = new DOMMatrix().translate(pan.x, pan.y);
+        const matrix = new DOMMatrix().translate(pan.x, pan.y).scale(1 / dpr, 1 / dpr);
         pattern.setTransform(matrix);
         ctx.fillStyle = pattern;
         ctx.fillRect(0, 0, width, height);
       } else {
         ctx.save();
         ctx.translate(pan.x, pan.y);
+        ctx.scale(1 / dpr, 1 / dpr);
         ctx.fillStyle = pattern;
-        ctx.fillRect(-pan.x, -pan.y, width, height);
+        ctx.fillRect(-pan.x, -pan.y, width * dpr, height * dpr);
         ctx.restore();
       }
     } else {
@@ -1077,31 +1094,61 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     };
   }, [renderCrosshair]);
 
-  // Window resize listener synchronizes all 4 canvas buffers & enforces K&E Isotropic Ratio
+  // Resize & DPI Watchdog (ResizeObserver & DPI Media Query Listener)
+  // Enforces hardware-level Device Pixel Ratio (DPR) calibration across all 4 canvas layers
   useEffect(() => {
-    const handleResize = () => {
-      const dpr = window.devicePixelRatio || 1;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleDpiOrResize = () => {
+      const currentDpr = window.devicePixelRatio || 1;
+      const rect = container.getBoundingClientRect();
+      const logicalWidth = Math.round(rect.width) || window.innerWidth;
+      const logicalHeight = Math.round(rect.height) || window.innerHeight;
+
+      // 1. Update React state for inline styles and JSX attributes
+      setViewportSize((prev) => {
+        if (
+          prev.width === logicalWidth &&
+          prev.height === logicalHeight &&
+          prev.dpr === currentDpr
+        ) {
+          return prev;
+        }
+        return { width: logicalWidth, height: logicalHeight, dpr: currentDpr };
+      });
+
+      // 2. Synchronize physical backing stores & CSS dimensions on all 4 canvas layers immediately
       const gCanvas = gridCanvasRef.current;
       const cCanvas = chartCanvasRef.current;
       const rCanvas = rulerCanvasRef.current;
       const uCanvas = crosshairCanvasRef.current;
-      if (!gCanvas || !cCanvas || !rCanvas || !uCanvas) return;
 
-      // Ratio Sentinel & Backing Store Integrity Audit
-      const backingAudit = auditCanvasBackingStore(gCanvas, dpr);
-      const ratioAudit = verifyKeEAspectRatio(baseUnit, majorUnit);
-      if (backingAudit.isDistorted || !ratioAudit.isValid) {
-        sentinelNoticeTimerRef.current = Date.now() + 4500;
+      const physicalW = Math.round(logicalWidth * currentDpr);
+      const physicalH = Math.round(logicalHeight * currentDpr);
+
+      const canvases = [gCanvas, cCanvas, rCanvas, uCanvas];
+      canvases.forEach((c) => {
+        if (c) {
+          c.width = physicalW;
+          c.height = physicalH;
+          c.style.width = `${logicalWidth}px`;
+          c.style.height = `${logicalHeight}px`;
+        }
+      });
+
+      // 3. Force OffscreenCanvas grid tile regeneration for the new DPR/zoom
+      cachedZoomRef.current = -1;
+      cachedDprRef.current = -1;
+
+      // 4. Ratio Sentinel & Backing Store Integrity Audit
+      if (gCanvas) {
+        const backingAudit = auditCanvasBackingStore(gCanvas, currentDpr);
+        const ratioAudit = verifyKeEAspectRatio(baseUnit, majorUnit);
+        if (backingAudit.isDistorted || !ratioAudit.isValid) {
+          sentinelNoticeTimerRef.current = Date.now() + 4500;
+        }
       }
-
-      const rect = gCanvas.getBoundingClientRect();
-      const w = Math.round(rect.width * dpr);
-      const h = Math.round(rect.height * dpr);
-
-      gCanvas.width = w; gCanvas.height = h;
-      cCanvas.width = w; cCanvas.height = h;
-      rCanvas.width = w; rCanvas.height = h;
-      uCanvas.width = w; uCanvas.height = h;
 
       prevDirtyRectsRef.current = null;
 
@@ -1116,10 +1163,42 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }, 4600);
     };
 
-    handleResize();
-    window.addEventListener("resize", handleResize);
+    // 1. ResizeObserver on the main canvas container
+    const resizeObserver = new ResizeObserver(() => {
+      handleDpiOrResize();
+    });
+    resizeObserver.observe(container);
+
+    // 2. DPI Watchdog media query for monitor scale switches
+    let dpiMediaQueryList: MediaQueryList | null = null;
+    const handleDpiChange = () => {
+      handleDpiOrResize();
+      setupDpiListener();
+    };
+
+    const setupDpiListener = () => {
+      if (typeof window === "undefined" || !window.matchMedia) return;
+      if (dpiMediaQueryList) {
+        dpiMediaQueryList.removeEventListener("change", handleDpiChange);
+      }
+      dpiMediaQueryList = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      dpiMediaQueryList.addEventListener("change", handleDpiChange);
+    };
+
+    setupDpiListener();
+
+    // 3. Window resize fallback
+    window.addEventListener("resize", handleDpiOrResize);
+
+    // Initial calibration
+    handleDpiOrResize();
+
     return () => {
-      window.removeEventListener("resize", handleResize);
+      resizeObserver.disconnect();
+      if (dpiMediaQueryList) {
+        dpiMediaQueryList.removeEventListener("change", handleDpiChange);
+      }
+      window.removeEventListener("resize", handleDpiOrResize);
       if (sentinelTimeoutRef.current) window.clearTimeout(sentinelTimeoutRef.current);
     };
   }, [renderGrid, renderChart, renderRulers, renderCrosshair, baseUnit, majorUnit]);
@@ -1221,6 +1300,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: "relative",
         width: "100%",
@@ -1233,12 +1313,14 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       {/* LAYER 1 (z-index: 10): Background & K&E 8x8 Grid (Hardware Tiled) */}
       <canvas
         ref={gridCanvasRef}
+        width={Math.round(viewportSize.width * viewportSize.dpr)}
+        height={Math.round(viewportSize.height * viewportSize.dpr)}
         style={{
           position: "absolute",
           top: 0,
           left: 0,
-          width: "100%",
-          height: "100%",
+          width: `${viewportSize.width}px`,
+          height: `${viewportSize.height}px`,
           zIndex: 10,
           pointerEvents: "none",
         }}
@@ -1246,12 +1328,14 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       {/* LAYER 2 (z-index: 20): Candlesticks, Volume, and Swings */}
       <canvas
         ref={chartCanvasRef}
+        width={Math.round(viewportSize.width * viewportSize.dpr)}
+        height={Math.round(viewportSize.height * viewportSize.dpr)}
         style={{
           position: "absolute",
           top: 0,
           left: 0,
-          width: "100%",
-          height: "100%",
+          width: `${viewportSize.width}px`,
+          height: `${viewportSize.height}px`,
           zIndex: 20,
           pointerEvents: "none",
         }}
@@ -1259,12 +1343,14 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       {/* LAYER 3 (z-index: 25): Fixed Four-Sided Axis Rulers & Corner Junctions (Static on mousemove) */}
       <canvas
         ref={rulerCanvasRef}
+        width={Math.round(viewportSize.width * viewportSize.dpr)}
+        height={Math.round(viewportSize.height * viewportSize.dpr)}
         style={{
           position: "absolute",
           top: 0,
           left: 0,
-          width: "100%",
-          height: "100%",
+          width: `${viewportSize.width}px`,
+          height: `${viewportSize.height}px`,
           zIndex: 25,
           pointerEvents: "none",
         }}
@@ -1272,6 +1358,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       {/* LAYER 4 (z-index: 30): Precision Crosshair & Reticle (Microscopic Dirty-Rect Updates) */}
       <canvas
         ref={crosshairCanvasRef}
+        width={Math.round(viewportSize.width * viewportSize.dpr)}
+        height={Math.round(viewportSize.height * viewportSize.dpr)}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -1282,8 +1370,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           position: "absolute",
           top: 0,
           left: 0,
-          width: "100%",
-          height: "100%",
+          width: `${viewportSize.width}px`,
+          height: `${viewportSize.height}px`,
           zIndex: 30,
           display: "block",
         }}
