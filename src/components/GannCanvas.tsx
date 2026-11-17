@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useGridState } from "../store/useGridState";
-import { GridTheme } from "../types/gann";
+import { GridTheme, CandleData } from "../types/gann";
 import { verifyKeEAspectRatio, auditCanvasBackingStore } from "../utils/ratioSentinel";
 import { normalizeWheelEvent } from "../utils/wheelNormalizer";
 
@@ -310,14 +310,72 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const mainRight = Math.round(width - rightRulerWidth);
     const mainBottom = Math.round(height - bottomRulerHeight);
 
+    // Viewport Frustum Culling & Data Virtualization (Pre-Flight Patch 1)
+    // 1. Calculate physical world coordinates of visible viewport edges
+    const visibleWorldLeft = (0 - pan.x) / zoom;
+    const visibleWorldRight = (width - pan.x) / zoom;
+    const minVisibleCol = visibleWorldLeft / baseUnit;
+    const maxVisibleCol = visibleWorldRight / baseUnit;
+
+    // 2. Binary search to slice only candles falling within the visible bounding box (+ 5-candle buffer)
+    const BUFFER_CANDLES = 5;
+    let visibleCandles: CandleData[] = [];
+
+    if (candles.length > 0) {
+      let low = 0;
+      let high = candles.length - 1;
+      let firstIdx = candles.length;
+
+      while (low <= high) {
+        const mid = (low + high) >> 1;
+        if (candles[mid].gridCol >= minVisibleCol) {
+          firstIdx = mid;
+          high = mid - 1;
+        } else {
+          low = mid + 1;
+        }
+      }
+
+      low = 0;
+      high = candles.length - 1;
+      let lastIdx = -1;
+
+      while (low <= high) {
+        const mid = (low + high) >> 1;
+        if (candles[mid].gridCol <= maxVisibleCol) {
+          lastIdx = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      if (firstIdx <= lastIdx) {
+        const startIdx = Math.max(0, firstIdx - BUFFER_CANDLES);
+        const endIdx = Math.min(candles.length, lastIdx + 1 + BUFFER_CANDLES);
+        visibleCandles = candles.slice(startIdx, endIdx);
+      } else {
+        if (lastIdx < 0) {
+          visibleCandles = candles.slice(0, Math.min(candles.length, BUFFER_CANDLES));
+        } else if (firstIdx >= candles.length) {
+          visibleCandles = candles.slice(Math.max(0, candles.length - BUFFER_CANDLES));
+        } else {
+          visibleCandles = [];
+        }
+      }
+    }
+
     // 1. Volume Histogram Bars
-    if (showVolumeBars && candles.length > 0) {
+    if (showVolumeBars && visibleCandles.length > 0) {
       ctx.save();
-      const maxVol = Math.max(...candles.map((c) => c.volume), 1);
+      let maxVol = 1;
+      for (let i = 0; i < visibleCandles.length; i++) {
+        if (visibleCandles[i].volume > maxVol) maxVol = visibleCandles[i].volume;
+      }
       const volumeChartHeight = 60;
       const volumeBaseY = mainBottom - 2;
 
-      candles.forEach((c) => {
+      visibleCandles.forEach((c) => {
         const colWorldX = c.gridCol * baseUnit;
         const colScreenX = worldToScreen(colWorldX, 0).x;
         if (colScreenX < mainLeft || colScreenX > mainRight) return;
@@ -352,12 +410,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     // 2. Japanese Candlesticks
     if (
       (chartMode === "CANDLESTICK" || chartMode === "HYBRID_CANDLE_SWING") &&
-      candles.length > 0
+      visibleCandles.length > 0
     ) {
       ctx.save();
       const candleBodyWidth = Math.max(4, scaledBase * 0.72);
 
-      candles.forEach((c) => {
+      visibleCandles.forEach((c) => {
         const colWorldX = c.gridCol * baseUnit;
         const screenColX = worldToScreen(colWorldX, 0).x;
         if (screenColX < -60 || screenColX > width + 60) return;
@@ -440,11 +498,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
 
     // 3. Western OHLC Bar Graphs
-    if (chartMode === "OHLC_BAR" && candles.length > 0) {
+    if (chartMode === "OHLC_BAR" && visibleCandles.length > 0) {
       ctx.save();
       const tickWidth = Math.max(3, scaledBase * 0.42);
 
-      candles.forEach((c) => {
+      visibleCandles.forEach((c) => {
         const colWorldX = c.gridCol * baseUnit;
         const screenColX = Math.round(worldToScreen(colWorldX, 0).x) + 0.5;
         if (screenColX < -50 || screenColX > width + 50) return;
