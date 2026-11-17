@@ -361,7 +361,13 @@ export const useGridState = create<GridState>((set, get) => ({
 
     // 0.1% Harmonic Snapper: rawScale = maxPrice * 0.001
     const rawScale = maxPrice * 0.001;
-    const harmonics = [0.1, 0.125, 0.25, 0.5, 1, 2.5, 5, 10, 12.5, 25, 50, 100, 250, 500, 1000];
+    // Gann's Rule of Eighths & Rule of Thirds expanded across base-10 tiers
+    const harmonics = [
+      0.1, 0.125, 0.2, 0.25, 0.333, 0.375, 0.5, 0.666, 0.75, 0.875,
+      1, 1.25, 2, 2.5, 3.333, 3.75, 5, 6.666, 7.5, 8.75,
+      10, 12.5, 20, 25, 33.33, 37.5, 50, 66.66, 75, 87.5,
+      100, 125, 200, 250, 333.3, 375, 500, 666.6, 750, 875, 1000,
+    ];
 
     // Find closest value in harmonics array to rawScale
     let closestHarmonic = harmonics[0];
