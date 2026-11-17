@@ -18,6 +18,7 @@ export interface CsvWorkerRequest {
   columnSpacing?: number;
   basePrice?: number;
   pricePerGridUnit?: number;
+  ingestionId?: number;
 }
 
 export interface CsvWorkerResponse {
@@ -27,10 +28,12 @@ export interface CsvWorkerResponse {
   totalRows: number;
   parseTimeMs: number;
   error?: string;
+  ingestionId?: number;
 }
 
 self.onmessage = (e: MessageEvent<CsvWorkerRequest>) => {
   const startTime = performance.now();
+  const ingestionId = e.data?.ingestionId;
   try {
     const {
       csvContent,
@@ -66,6 +69,7 @@ self.onmessage = (e: MessageEvent<CsvWorkerRequest>) => {
       swings,
       totalRows: rawBrokerCandles.length,
       parseTimeMs,
+      ingestionId,
     };
 
     self.postMessage(response);
@@ -78,6 +82,7 @@ self.onmessage = (e: MessageEvent<CsvWorkerRequest>) => {
       totalRows: 0,
       parseTimeMs: Math.round(performance.now() - startTime),
       error: errorMsg,
+      ingestionId,
     };
     self.postMessage(response);
   }

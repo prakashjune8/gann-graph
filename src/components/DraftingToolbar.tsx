@@ -48,12 +48,18 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const [isParsing, setIsParsing] = useState(false);
   const [parseNotice, setParseNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeReaderRef = useRef<FileReader | null>(null);
   const activeWorkerRef = useRef<Worker | null>(null);
+  const currentIngestionIdRef = useRef<number>(0);
   const parseNoticeTimerRef = useRef<number | null>(null);
 
-  // Strict lifecycle cleanup to eradicate memory leaks on unmount
+  // Strict lifecycle cleanup to eradicate zombie processes & memory leaks on unmount
   useEffect(() => {
     return () => {
+      if (activeReaderRef.current) {
+        activeReaderRef.current.abort();
+        activeReaderRef.current = null;
+      }
       if (activeWorkerRef.current) {
         activeWorkerRef.current.terminate();
         activeWorkerRef.current = null;
@@ -69,11 +75,35 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Abort any ongoing FileReader read
+    if (activeReaderRef.current) {
+      activeReaderRef.current.abort();
+      activeReaderRef.current = null;
+    }
+
+    // Terminate any previous dangling worker instance
+    if (activeWorkerRef.current) {
+      activeWorkerRef.current.terminate();
+      activeWorkerRef.current = null;
+    }
+
+    // Increment atomic generation token to discard stale in-flight responses (BETA-P0-01)
+    currentIngestionIdRef.current += 1;
+    const ingestionId = currentIngestionIdRef.current;
+
     setIsParsing(true);
     setParseNotice(null);
 
     const reader = new FileReader();
+    activeReaderRef.current = reader;
+
     reader.onload = (event) => {
+      // If a newer ingestion was initiated while reading file, discard immediately
+      if (currentIngestionIdRef.current !== ingestionId) {
+        return;
+      }
+      activeReaderRef.current = null;
+
       const csvContent = event.target?.result;
       if (typeof csvContent !== "string") {
         setIsParsing(false);
@@ -91,6 +121,15 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
 
       worker.onmessage = (msgEvt: MessageEvent<CsvWorkerResponse>) => {
         const data = msgEvt.data;
+        // Verify returned generation token strictly matches currentIngestionIdRef.current
+        if (currentIngestionIdRef.current !== ingestionId || data.ingestionId !== currentIngestionIdRef.current) {
+          worker.terminate();
+          if (activeWorkerRef.current === worker) {
+            activeWorkerRef.current = null;
+          }
+          return;
+        }
+
         if (data.success && data.candles.length > 0) {
           setCandles(data.candles);
           setSwingPoints(data.swings);
@@ -107,11 +146,15 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
       };
 
       worker.onerror = (err) => {
-        console.error("CSV Worker error:", err);
-        alert("Worker encountered an error while parsing CSV.");
-        setIsParsing(false);
+        if (currentIngestionIdRef.current === ingestionId) {
+          console.error("CSV Worker error:", err);
+          alert("Worker encountered an error while parsing CSV.");
+          setIsParsing(false);
+        }
         worker.terminate();
-        activeWorkerRef.current = null;
+        if (activeWorkerRef.current === worker) {
+          activeWorkerRef.current = null;
+        }
       };
 
       worker.postMessage({
@@ -119,6 +162,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         columnSpacing: 2,
         basePrice,
         pricePerGridUnit: pricePerUnit,
+        ingestionId,
       });
 
       // Reset file input value so user can re-upload same file if needed
@@ -126,8 +170,11 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     };
 
     reader.onerror = () => {
-      alert("Failed to read the selected file.");
-      setIsParsing(false);
+      if (currentIngestionIdRef.current === ingestionId) {
+        alert("Failed to read the selected file.");
+        setIsParsing(false);
+      }
+      activeReaderRef.current = null;
     };
 
     reader.readAsText(file);

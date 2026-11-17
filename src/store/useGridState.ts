@@ -342,14 +342,12 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
 
   setCandles: (candles) => {
-    const analyzed = identifyCandlestickPatterns(candles);
-    const count = analyzed.filter((c) => c.pattern).length;
-    set({ candles: analyzed, patternCount: count });
+    const count = candles.filter((c) => c.pattern).length;
+    set({ candles, patternCount: count });
   },
   setDataset: (candles) => {
-    const analyzed = identifyCandlestickPatterns(candles);
-    const count = analyzed.filter((c) => c.pattern).length;
-    set({ candles: analyzed, patternCount: count });
+    const count = candles.filter((c) => c.pattern).length;
+    set({ candles, patternCount: count });
   },
   addSwingPoint: (point) => set((s) => ({ swingPoints: [...s.swingPoints, point] })),
   setSwingPoints: (points) => set({ swingPoints: points }),
