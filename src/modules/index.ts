@@ -8,6 +8,7 @@
 import { ModuleRegistry } from "../ModuleRegistry";
 import { EquilibriumModule } from "./equilibrium/EquilibriumModule";
 import { OctaveHarmonicsModule } from "./octave-harmonics/OctaveHarmonicsModule";
+export * as AutoScaleV2 from "./autoscale-v2";
 
 export function initializeSandboxModules(): void {
   // Register active feature modules
