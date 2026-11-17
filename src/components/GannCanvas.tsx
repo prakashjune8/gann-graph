@@ -1156,6 +1156,24 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     };
   }, [renderCrosshair]);
 
+  // Stable ref delegation for render callbacks and dimension constants to decouple ResizeObserver
+  const renderFnsRef = useRef({
+    renderGrid,
+    renderChart,
+    renderRulers,
+    renderCrosshair,
+    baseUnit,
+    majorUnit,
+  });
+  renderFnsRef.current = {
+    renderGrid,
+    renderChart,
+    renderRulers,
+    renderCrosshair,
+    baseUnit,
+    majorUnit,
+  };
+
   // Resize & DPI Watchdog (ResizeObserver & DPI Media Query Listener)
   // Enforces hardware-level Device Pixel Ratio (DPR) calibration across all 4 canvas layers
   useEffect(() => {
@@ -1206,7 +1224,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       // 4. Ratio Sentinel & Backing Store Integrity Audit
       if (gCanvas) {
         const backingAudit = auditCanvasBackingStore(gCanvas, currentDpr);
-        const ratioAudit = verifyKeEAspectRatio(baseUnit, majorUnit);
+        const ratioAudit = verifyKeEAspectRatio(
+          renderFnsRef.current.baseUnit,
+          renderFnsRef.current.majorUnit
+        );
         if (backingAudit.isDistorted || !ratioAudit.isValid) {
           sentinelNoticeTimerRef.current = Date.now() + 4500;
         }
@@ -1214,14 +1235,14 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       prevDirtyRectsRef.current = null;
 
-      renderGrid();
-      renderChart();
-      renderRulers();
-      renderCrosshair();
+      renderFnsRef.current.renderGrid();
+      renderFnsRef.current.renderChart();
+      renderFnsRef.current.renderRulers();
+      renderFnsRef.current.renderCrosshair();
 
       if (sentinelTimeoutRef.current) window.clearTimeout(sentinelTimeoutRef.current);
       sentinelTimeoutRef.current = window.setTimeout(() => {
-        renderCrosshair();
+        renderFnsRef.current.renderCrosshair();
       }, 4600);
     };
 
@@ -1286,7 +1307,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         sentinelTimeoutRef.current = null;
       }
     };
-  }, [renderGrid, renderChart, renderRulers, renderCrosshair, baseUnit, majorUnit]);
+  }, [containerRef]);
 
   /**
    * KEYBOARD ARROW KEY NAVIGATION
