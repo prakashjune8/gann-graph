@@ -101,10 +101,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     zoom,
   });
 
-  // Sentinel Watchdog Notification Timer & Audit Refs
-  const sentinelNoticeTimerRef = useRef<number>(Date.now() + 4500);
-  const sentinelTimeoutRef = useRef<number | null>(null);
-
   /**
    * Generates or reuses an Offscreen Master Tile for the K&E 8x8 Grid.
    * DPR-Aware Hardware Tiling: Re-renders ONLY when zoom scale or DPR changes, NOT on pan.
@@ -959,39 +955,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     const newDirtyRects: DirtyRect[] = [];
 
-    // Sentinel Watchdog Banner (Layer 4) - Verifies Isotropic 1:1 Aspect Ratio
-    if (Date.now() < sentinelNoticeTimerRef.current) {
-      ctx.save();
-      const badgeText = "⚠️ K&E 8x8 ISOTROPIC RATIO LOCKED (0.125\" / 96 DPI)";
-      ctx.font = "bold 10px 'Courier New', Courier, monospace";
-      const bw = ctx.measureText(badgeText).width + 24;
-      const bh = 22;
-      const bx = Math.round((width - bw) / 2);
-      const topRulerOffset = showTopAxis ? 30 : 0;
-      const by = topRulerOffset + 8;
-
-      ctx.fillStyle = "#E65100";
-      ctx.strokeStyle = "#BF360C";
-      ctx.lineWidth = 1.2;
-      if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 4);
-      else ctx.rect(bx, by, bw, bh);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = "#FFFFFF";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(badgeText, width / 2, by + bh / 2);
-      ctx.restore();
-
-      newDirtyRects.push({ x: bx - 2, y: by - 2, w: bw + 4, h: bh + 4 });
-    }
-
-    // If crosshair is inactive or cursor is outside, cache any sentinel dirty rects and exit cleanly
+    // If crosshair is inactive or cursor is outside, exit cleanly
     if (!isHovered || !showCrosshair) {
-      if (newDirtyRects.length > 0) {
-        prevDirtyRectsRef.current = newDirtyRects;
-      }
       return;
     }
 
@@ -1002,9 +967,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     // Boundary check
     if (cx < -50 || cx > width + 50 || cy < -50 || cy > height + 50) {
-      if (newDirtyRects.length > 0) {
-        prevDirtyRectsRef.current = newDirtyRects;
-      }
       return;
     }
 
@@ -1077,6 +1039,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     ctx.fillStyle = "rgba(247, 246, 240, 0.94)";
     ctx.strokeStyle = "rgba(74, 120, 102, 0.55)";
     ctx.lineWidth = 1;
+    ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(bX, bY - 11, bW, bH, 3);
     else ctx.rect(bX, bY - 11, bW, bH);
     ctx.fill();
@@ -1265,7 +1228,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           renderFnsRef.current.majorUnit
         );
         if (backingAudit.isDistorted || !ratioAudit.isValid) {
-          sentinelNoticeTimerRef.current = Date.now() + 4500;
+          console.warn("[RatioSentinel] Physical ratio deviation detected, maintaining K&E 8x8 lock.");
         }
       }
 
@@ -1275,11 +1238,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       renderFnsRef.current.renderChart();
       renderFnsRef.current.renderRulers();
       renderFnsRef.current.renderCrosshair();
-
-      if (sentinelTimeoutRef.current) window.clearTimeout(sentinelTimeoutRef.current);
-      sentinelTimeoutRef.current = window.setTimeout(() => {
-        renderFnsRef.current.renderCrosshair();
-      }, 4600);
     };
 
     // 1. ResizeObserver on the main canvas container
@@ -1336,12 +1294,6 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       // 3. Remove window resize fallback listener
       window.removeEventListener("resize", handleDpiOrResize);
-
-      // 4. Cancel active sentinel timer
-      if (sentinelTimeoutRef.current) {
-        window.clearTimeout(sentinelTimeoutRef.current);
-        sentinelTimeoutRef.current = null;
-      }
     };
   }, [containerRef]);
 
