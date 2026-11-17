@@ -39,16 +39,30 @@ export function parseBrokerCsv(csvContent: string): BrokerCandle[] {
     const cols = lines[i].split(",").map((c) => c.trim());
     if (cols.length < 5) continue;
 
+    // Sanitize numeric strings: strip commas, currency symbols (₹, $), quotes, and whitespace
+    const rawOpen = (cols[openIdx >= 0 ? openIdx : 1] || "").replace(/[^0-9.-]+/g, "");
+    const rawHigh = (cols[highIdx >= 0 ? highIdx : 2] || "").replace(/[^0-9.-]+/g, "");
+    const rawLow = (cols[lowIdx >= 0 ? lowIdx : 3] || "").replace(/[^0-9.-]+/g, "");
+    const rawClose = (cols[closeIdx >= 0 ? closeIdx : 4] || "").replace(/[^0-9.-]+/g, "");
+    const rawVol = volIdx >= 0 ? (cols[volIdx] || "").replace(/[^0-9.-]+/g, "") : "0";
+
     const candle: BrokerCandle = {
       timestamp: cols[dateIdx >= 0 ? dateIdx : 0],
-      open: parseFloat(cols[openIdx >= 0 ? openIdx : 1]),
-      high: parseFloat(cols[highIdx >= 0 ? highIdx : 2]),
-      low: parseFloat(cols[lowIdx >= 0 ? lowIdx : 3]),
-      close: parseFloat(cols[closeIdx >= 0 ? closeIdx : 4]),
-      volume: volIdx >= 0 ? parseFloat(cols[volIdx]) : 0,
+      open: parseFloat(rawOpen),
+      high: parseFloat(rawHigh),
+      low: parseFloat(rawLow),
+      close: parseFloat(rawClose),
+      volume: rawVol !== "" ? parseFloat(rawVol) : 0,
     };
 
-    if (!isNaN(candle.high) && !isNaN(candle.low)) {
+    // Enforce strict finite validation across all data points (Audit Finding 1.1 & 1.2 Remediation)
+    if (
+      Number.isFinite(candle.open) &&
+      Number.isFinite(candle.high) &&
+      Number.isFinite(candle.low) &&
+      Number.isFinite(candle.close) &&
+      Number.isFinite(candle.volume)
+    ) {
       candles.push(candle);
     }
   }
