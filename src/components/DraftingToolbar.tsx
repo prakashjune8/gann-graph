@@ -3,6 +3,8 @@ import { useGridState } from "../store/useGridState";
 import { ChartDisplayMode } from "../types/gann";
 import CsvWorker from "../workers/csvWorker?worker&inline";
 import { CsvWorkerResponse } from "../workers/csvWorker";
+import { useActiveModuleTools } from "../ModuleRegistry";
+import { GridBridge } from "../core-bridge/GridBridge";
 
 interface DraftingToolbarProps {
   showGannRay: boolean;
@@ -43,6 +45,9 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const setSwingPoints = useGridState((s) => s.setSwingPoints);
   const basePrice = useGridState((s) => s.basePrice);
   const pricePerUnit = useGridState((s) => s.pricePerUnit);
+
+  // Dynamic Modular Plugin Tools (Feature-Sliced Architecture)
+  const moduleTools = useActiveModuleTools();
 
   const [isParsing, setIsParsing] = useState(false);
   const [parseNotice, setParseNotice] = useState<string | null>(null);
@@ -320,6 +325,35 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           {showCrosshair ? "🎯 Crosshair" : "🎯 Off"}
         </button>
       </div>
+
+      {/* Dynamic Modular Plugins Tools (Feature-Sliced Plugin Architecture) */}
+      {moduleTools.length > 0 && (
+        <>
+          <div style={dividerStyle} />
+          <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+            {moduleTools.map((tool) => {
+              const isActive = tool.isActive ? tool.isActive(GridBridge) : false;
+              return (
+                <button
+                  key={`${tool.moduleId}-${tool.id}`}
+                  onClick={() => tool.onClick(GridBridge)}
+                  style={{
+                    ...buttonStyle,
+                    backgroundColor: isActive ? "#E8F5E9" : "transparent",
+                    borderColor: isActive ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+                    color: isActive ? "#1B5E20" : "#2C3E35",
+                    fontWeight: isActive ? "bold" : "normal",
+                  }}
+                  title={tool.title || tool.label}
+                >
+                  {tool.icon && <span style={{ marginRight: 4 }}>{tool.icon}</span>}
+                  {tool.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <div style={dividerStyle} />
 
