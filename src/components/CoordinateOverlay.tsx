@@ -9,6 +9,7 @@ export const CoordinateOverlay: React.FC = () => {
     cursorGrid,
     chartMode,
     candles,
+    patternCount,
     worldYToPrice,
     showPatterns,
     showBottomAxis,
@@ -19,8 +20,6 @@ export const CoordinateOverlay: React.FC = () => {
   const inchCol = (cursorGrid.col / 8).toFixed(3);
   const inchRow = (cursorGrid.row / 8).toFixed(3);
   const cursorPrice = worldYToPrice(cursorWorld.y).toFixed(1);
-
-  const patternCount = candles.filter((c) => c.pattern).length;
 
   return (
     <div

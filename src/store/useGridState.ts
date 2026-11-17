@@ -119,6 +119,7 @@ export interface GridState {
   timePerUnit: string;  // e.g. "1 Day" or "60 Min" per baseUnit minor square
   candles: CandleData[];
   swingPoints: SwingPoint[];
+  patternCount: number; // Memoized count of flagged candlestick patterns (Audit 3.3)
 
   // Actions
   setPan: (pan: Point2D) => void;
@@ -143,6 +144,7 @@ export interface GridState {
 
   // Data Actions
   setCandles: (candles: CandleData[]) => void;
+  setDataset: (candles: CandleData[]) => void;
   addSwingPoint: (point: SwingPoint) => void;
   setSwingPoints: (points: SwingPoint[]) => void;
   clearAllData: () => void;
@@ -216,6 +218,7 @@ export const useGridState = create<GridState>((set, get) => ({
 
   candles: initialData.candles,
   swingPoints: initialData.swings,
+  patternCount: initialData.candles.filter((c) => c.pattern).length,
 
   setPan: (pan) =>
     set({
@@ -348,15 +351,25 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleAxisTransparency: () => set((s) => ({ isAxisTransparent: !s.isAxisTransparent })),
   toggleCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
 
-  setCandles: (candles) => set({ candles: identifyCandlestickPatterns(candles) }),
+  setCandles: (candles) => {
+    const analyzed = identifyCandlestickPatterns(candles);
+    const count = analyzed.filter((c) => c.pattern).length;
+    set({ candles: analyzed, patternCount: count });
+  },
+  setDataset: (candles) => {
+    const analyzed = identifyCandlestickPatterns(candles);
+    const count = analyzed.filter((c) => c.pattern).length;
+    set({ candles: analyzed, patternCount: count });
+  },
   addSwingPoint: (point) => set((s) => ({ swingPoints: [...s.swingPoints, point] })),
   setSwingPoints: (points) => set({ swingPoints: points }),
 
-  clearAllData: () => set({ candles: [], swingPoints: [] }),
+  clearAllData: () => set({ candles: [], swingPoints: [], patternCount: 0 }),
 
   loadSampleDataset: () => {
     const fresh = generateSampleCandleDataset(get().basePrice, get().pricePerUnit);
-    set({ candles: fresh.candles, swingPoints: fresh.swings });
+    const count = fresh.candles.filter((c) => c.pattern).length;
+    set({ candles: fresh.candles, swingPoints: fresh.swings, patternCount: count });
   },
 
   // Conversion: Screen -> World
