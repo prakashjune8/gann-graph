@@ -3,6 +3,7 @@ import { useGridState } from "../store/useGridState";
 import { GridTheme, CandleData } from "../types/gann";
 import { verifyKeEAspectRatio, auditCanvasBackingStore } from "../utils/ratioSentinel";
 import { normalizeWheelEvent } from "../utils/wheelNormalizer";
+import { GridBridge } from "../core-bridge/GridBridge";
 
 // Classic drafting room color palette for Keuffel & Esser 8x8 engineering vellum
 const DRAFTING_THEME: GridTheme = {
@@ -620,6 +621,21 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       });
       ctx.restore();
     }
+
+    // 5. Modular Overlay Extensions (Decoupled Plugin Architecture)
+    const overlays = GridBridge.getOverlays();
+    if (overlays.size > 0) {
+      overlays.forEach((renderer) => {
+        try {
+          ctx.save();
+          renderer(ctx, GridBridge, { width, height, dpr });
+          ctx.restore();
+        } catch (err) {
+          console.error("[GannCanvas] Error in modular overlay renderer:", err);
+          ctx.restore();
+        }
+      });
+    }
   }, [
     pan,
     zoom,
@@ -1137,6 +1153,14 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     return () => {
       if (animFrameChartRef.current) cancelAnimationFrame(animFrameChartRef.current);
     };
+  }, [renderChart]);
+
+  // Listen to modular overlay registration/update events from GridBridge
+  useEffect(() => {
+    return GridBridge.onOverlayChange(() => {
+      if (animFrameChartRef.current) cancelAnimationFrame(animFrameChartRef.current);
+      animFrameChartRef.current = requestAnimationFrame(renderChart);
+    });
   }, [renderChart]);
 
   useEffect(() => {
