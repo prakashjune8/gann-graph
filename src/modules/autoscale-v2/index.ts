@@ -6,3 +6,4 @@
 export * from "./SwingDetector";
 export * from "./SwingVisualizerModule";
 export * from "./RatioEngine";
+export * from "./HistoricSeedEngine";
