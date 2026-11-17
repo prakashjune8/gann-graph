@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useState, useRef } from "react";
 import { useGridState } from "../store/useGridState";
 import { ChartDisplayMode } from "../types/gann";
+import CsvWorker from "../workers/csvWorker?worker&inline";
+import { CsvWorkerResponse } from "../workers/csvWorker";
 
 interface DraftingToolbarProps {
   showGannRay: boolean;
@@ -37,7 +39,74 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     loadSampleDataset,
     clearAllData,
     candles,
+    setCandles,
+    setSwingPoints,
+    basePrice,
+    pricePerUnit,
   } = useGridState();
+
+  const [isParsing, setIsParsing] = useState(false);
+  const [parseNotice, setParseNotice] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsParsing(true);
+    setParseNotice(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const csvContent = event.target?.result;
+      if (typeof csvContent !== "string") {
+        setIsParsing(false);
+        return;
+      }
+
+      // Instantiate dedicated Web Worker (off-main-thread processing)
+      const worker = new CsvWorker();
+
+      worker.onmessage = (msgEvt: MessageEvent<CsvWorkerResponse>) => {
+        const data = msgEvt.data;
+        if (data.success && data.candles.length > 0) {
+          setCandles(data.candles);
+          setSwingPoints(data.swings);
+          jumpToLatest(window.innerWidth, window.innerHeight);
+          setParseNotice(`✓ ${data.totalRows} bars (${data.parseTimeMs}ms)`);
+          setTimeout(() => setParseNotice(null), 4000);
+        } else {
+          alert(`CSV Parse Error: ${data.error || "Failed to parse data."}`);
+        }
+        setIsParsing(false);
+        worker.terminate();
+      };
+
+      worker.onerror = (err) => {
+        console.error("CSV Worker error:", err);
+        alert("Worker encountered an error while parsing CSV.");
+        setIsParsing(false);
+        worker.terminate();
+      };
+
+      worker.postMessage({
+        csvContent,
+        columnSpacing: 2,
+        basePrice,
+        pricePerGridUnit: pricePerUnit,
+      });
+
+      // Reset file input value so user can re-upload same file if needed
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+
+    reader.onerror = () => {
+      alert("Failed to read the selected file.");
+      setIsParsing(false);
+    };
+
+    reader.readAsText(file);
+  };
 
   const handleZoomIn = () => {
     const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
@@ -298,8 +367,30 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
 
       <div style={dividerStyle} />
 
-      {/* Data Ingest & Reset */}
-      <div>
+      {/* Data Ingest & Reset (Web Worker Powered) */}
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept=".csv,.txt"
+          style={{ display: "none" }}
+          onChange={handleFileSelect}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isParsing}
+          style={{
+            ...buttonStyle,
+            backgroundColor: isParsing ? "#F5F5F5" : "#E8F5E9",
+            borderColor: isParsing ? "#CCC" : "#2E7D32",
+            color: isParsing ? "#888" : "#1B5E20",
+            fontWeight: "bold",
+          }}
+          title="Upload Zerodha Kite, Alice Blue, or generic OHLCV CSV file via Web Worker"
+        >
+          {isParsing ? "⏳ Loading Data..." : "📁 Ingest CSV"}
+        </button>
+
         {candles.length === 0 ? (
           <button
             onClick={loadSampleDataset}
@@ -323,6 +414,19 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           >
             Clear Data
           </button>
+        )}
+
+        {parseNotice && (
+          <span
+            style={{
+              fontSize: "10px",
+              color: "#2E7D32",
+              fontWeight: "bold",
+              marginLeft: "4px",
+            }}
+          >
+            {parseNotice}
+          </span>
         )}
       </div>
     </div>
