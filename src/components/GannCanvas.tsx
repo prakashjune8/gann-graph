@@ -190,21 +190,24 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // 1. Hardware Pattern Blit via Offscreen Master Tile
+    const roundPanX = Math.round(pan.x);
+    const roundPanY = Math.round(pan.y);
+
+    // 1. Hardware Pattern Blit via Offscreen Master Tile (Integer Clamped Offsets)
     const tile = getGridTile(zoom, dpr);
     const pattern = ctx.createPattern(tile, "repeat");
     if (pattern) {
       if (pattern.setTransform) {
-        const matrix = new DOMMatrix().translate(pan.x, pan.y).scale(1 / dpr, 1 / dpr);
+        const matrix = new DOMMatrix().translate(roundPanX, roundPanY).scale(1 / dpr, 1 / dpr);
         pattern.setTransform(matrix);
         ctx.fillStyle = pattern;
         ctx.fillRect(0, 0, width, height);
       } else {
         ctx.save();
-        ctx.translate(pan.x, pan.y);
+        ctx.translate(roundPanX, roundPanY);
         ctx.scale(1 / dpr, 1 / dpr);
         ctx.fillStyle = pattern;
-        ctx.fillRect(-pan.x, -pan.y, width * dpr, height * dpr);
+        ctx.fillRect(-roundPanX, -roundPanY, width * dpr, height * dpr);
         ctx.restore();
       }
     } else {
@@ -212,16 +215,16 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.fillRect(0, 0, width, height);
     }
 
-    // 2. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price)
+    // 2. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price) - Integer Clamped (2.0px stroke)
     ctx.lineWidth = 2.0;
     ctx.strokeStyle = DRAFTING_THEME.axisLine;
     ctx.beginPath();
-    const axisY = Math.round(pan.y) + 0.5;
+    const axisY = roundPanY;
     if (axisY >= 0 && axisY <= height) {
       ctx.moveTo(0, axisY);
       ctx.lineTo(width, axisY);
     }
-    const axisX = Math.round(pan.x) + 0.5;
+    const axisX = roundPanX;
     if (axisX >= 0 && axisX <= width) {
       ctx.moveTo(axisX, 0);
       ctx.lineTo(axisX, height);
@@ -302,9 +305,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const rightRulerWidth = showRightAxis ? 88 : 0;
     const bottomRulerHeight = showBottomAxis ? 32 : 0;
 
-    const mainLeft = leftRulerWidth;
-    const mainRight = width - rightRulerWidth;
-    const mainBottom = height - bottomRulerHeight;
+    const mainLeft = Math.round(leftRulerWidth);
+    const mainRight = Math.round(width - rightRulerWidth);
+    const mainBottom = Math.round(height - bottomRulerHeight);
 
     // 1. Volume Histogram Bars
     if (showVolumeBars && candles.length > 0) {
@@ -581,10 +584,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const topRulerHeight = showTopAxis ? 30 : 0;
     const bottomRulerHeight = showBottomAxis ? 32 : 0;
 
-    const mainLeft = leftRulerWidth;
-    const mainRight = width - rightRulerWidth;
-    const mainTop = topRulerHeight;
-    const mainBottom = height - bottomRulerHeight;
+    const mainLeft = Math.round(leftRulerWidth);
+    const mainRight = Math.round(width - rightRulerWidth);
+    const mainTop = Math.round(topRulerHeight);
+    const mainBottom = Math.round(height - bottomRulerHeight);
 
     ctx.save();
     const rulerBg = isAxisTransparent
@@ -898,8 +901,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
 
     const snapScreen = worldToScreen(cursorGrid.col * baseUnit, cursorGrid.row * baseUnit);
-    const cx = Math.round(snapScreen.x) + 0.5;
-    const cy = Math.round(snapScreen.y) + 0.5;
+    const cx = Math.round(snapScreen.x);
+    const cy = Math.round(snapScreen.y);
 
     // Boundary check
     if (cx < -50 || cx > width + 50 || cy < -50 || cy > height + 50) {
@@ -916,29 +919,29 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const topRulerHeight = showTopAxis ? 30 : 0;
     const bottomRulerHeight = showBottomAxis ? 32 : 0;
 
-    const mainLeft = leftRulerWidth;
-    const mainRight = width - rightRulerWidth;
-    const mainTop = topRulerHeight;
-    const mainBottom = height - bottomRulerHeight;
+    const mainLeft = Math.round(leftRulerWidth);
+    const mainRight = Math.round(width - rightRulerWidth);
+    const mainTop = Math.round(topRulerHeight);
+    const mainBottom = Math.round(height - bottomRulerHeight);
 
     ctx.save();
 
-    // 2. Render Full-Screen Snapped Dashed Lines
+    // 2. Render Full-Screen Snapped Dashed Lines (Strict integer pixel center with 0.5 offset)
     ctx.lineWidth = 1.0;
     ctx.strokeStyle = "rgba(55, 71, 79, 0.85)";
     ctx.setLineDash([4, 4]);
 
     ctx.beginPath();
-    ctx.moveTo(cx, 0);
-    ctx.lineTo(cx, height);
+    ctx.moveTo(cx + 0.5, 0);
+    ctx.lineTo(cx + 0.5, height);
     ctx.stroke();
-    newDirtyRects.push({ x: Math.floor(cx) - 2, y: 0, w: 5, h: height });
+    newDirtyRects.push({ x: cx - 2, y: 0, w: 5, h: height });
 
     ctx.beginPath();
-    ctx.moveTo(0, cy);
-    ctx.lineTo(width, cy);
+    ctx.moveTo(0, cy + 0.5);
+    ctx.lineTo(width, cy + 0.5);
     ctx.stroke();
-    newDirtyRects.push({ x: 0, y: Math.floor(cy) - 2, w: width, h: 5 });
+    newDirtyRects.push({ x: 0, y: cy - 2, w: width, h: 5 });
 
     // 3. Precision Drafting Reticle Target (Circle + 4 Brackets)
     ctx.setLineDash([]);
@@ -958,7 +961,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy - gap);
     ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + arm);
     ctx.stroke();
-    newDirtyRects.push({ x: Math.floor(cx) - 16, y: Math.floor(cy) - 16, w: 32, h: 32 });
+    newDirtyRects.push({ x: cx - 16, y: cy - 16, w: 32, h: 32 });
 
     // 4. Snapped Coordinate HUD Floating Badge
     const inchX = (cursorGrid.col / subdivisions).toFixed(2);
@@ -999,7 +1002,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
       ctx.textAlign = "center";
       ctx.fillText(pStr, leftRulerWidth / 2, cy);
-      newDirtyRects.push({ x: 0, y: Math.floor(cy) - 11, w: leftRulerWidth + 1, h: 22 });
+      newDirtyRects.push({ x: 0, y: cy - 11, w: leftRulerWidth + 1, h: 22 });
     }
 
     // Right Price Indicator
@@ -1011,7 +1014,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
       ctx.textAlign = "center";
       ctx.fillText(pStr, mainRight + rightRulerWidth / 2, cy);
-      newDirtyRects.push({ x: Math.floor(mainRight) - 1, y: Math.floor(cy) - 11, w: rightRulerWidth + 2, h: 22 });
+      newDirtyRects.push({ x: mainRight - 1, y: cy - 11, w: rightRulerWidth + 2, h: 22 });
     }
 
     // Top Time Indicator
@@ -1019,12 +1022,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const tStr = `T+${cursorGrid.col}`;
       const tagW = 48;
       ctx.fillStyle = "#1B5E20";
-      ctx.fillRect(cx - tagW / 2, 0, tagW, topRulerHeight);
+      ctx.fillRect(Math.round(cx - tagW / 2), 0, tagW, topRulerHeight);
       ctx.fillStyle = "#FFFFFF";
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
       ctx.textAlign = "center";
       ctx.fillText(tStr, cx, topRulerHeight / 2);
-      newDirtyRects.push({ x: Math.floor(cx - tagW / 2) - 2, y: 0, w: tagW + 4, h: topRulerHeight + 1 });
+      newDirtyRects.push({ x: Math.round(cx - tagW / 2) - 2, y: 0, w: tagW + 4, h: topRulerHeight + 1 });
     }
 
     // Bottom Time Indicator
@@ -1032,12 +1035,12 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const tStr = `T+${cursorGrid.col}`;
       const tagW = 48;
       ctx.fillStyle = "#1B5E20";
-      ctx.fillRect(cx - tagW / 2, mainBottom, tagW, bottomRulerHeight);
+      ctx.fillRect(Math.round(cx - tagW / 2), mainBottom, tagW, bottomRulerHeight);
       ctx.fillStyle = "#FFFFFF";
       ctx.font = "bold 9px 'Courier New', Courier, monospace";
       ctx.textAlign = "center";
       ctx.fillText(tStr, cx, mainBottom + 19);
-      newDirtyRects.push({ x: Math.floor(cx - tagW / 2) - 2, y: Math.floor(mainBottom) - 1, w: tagW + 4, h: bottomRulerHeight + 2 });
+      newDirtyRects.push({ x: Math.round(cx - tagW / 2) - 2, y: mainBottom - 1, w: tagW + 4, h: bottomRulerHeight + 2 });
     }
 
     ctx.restore();

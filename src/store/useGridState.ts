@@ -217,13 +217,19 @@ export const useGridState = create<GridState>((set, get) => ({
   candles: initialData.candles,
   swingPoints: initialData.swings,
 
-  setPan: (pan) => set({ pan }),
+  setPan: (pan) =>
+    set({
+      pan: {
+        x: Math.round(pan.x),
+        y: Math.round(pan.y),
+      },
+    }),
 
   panBy: (deltaX, deltaY) =>
     set((state) => ({
       pan: {
-        x: state.pan.x + deltaX,
-        y: state.pan.y + deltaY,
+        x: Math.round(state.pan.x + deltaX),
+        y: Math.round(state.pan.y + deltaY),
       },
     })),
 
@@ -237,8 +243,8 @@ export const useGridState = create<GridState>((set, get) => ({
     const worldX = (screenX - pan.x) / zoom;
     const worldY = (pan.y - screenY) / zoom;
 
-    const nextPanX = screenX - worldX * nextZoom;
-    const nextPanY = screenY + worldY * nextZoom;
+    const nextPanX = Math.round(screenX - worldX * nextZoom);
+    const nextPanY = Math.round(screenY + worldY * nextZoom);
 
     set({
       zoom: nextZoom,
@@ -253,7 +259,7 @@ export const useGridState = create<GridState>((set, get) => ({
 
   resetView: (canvasWidth = 1440, canvasHeight = 900) => {
     set({
-      pan: { x: Math.floor(canvasWidth * 0.12), y: Math.floor(canvasHeight * 0.75) },
+      pan: { x: Math.round(canvasWidth * 0.12), y: Math.round(canvasHeight * 0.75) },
       zoom: 1.0,
     });
   },
@@ -308,20 +314,22 @@ export const useGridState = create<GridState>((set, get) => ({
 
     set({
       pan: {
-        x: targetPanX,
-        y: targetPanY,
+        x: Math.round(targetPanX),
+        y: Math.round(targetPanY),
       },
     });
   },
 
   updateCursor: (screenX, screenY) => {
+    const rx = Math.round(screenX);
+    const ry = Math.round(screenY);
     const { screenToWorld, screenToGrid } = get();
-    const world = screenToWorld(screenX, screenY);
-    const grid = screenToGrid(screenX, screenY);
+    const world = screenToWorld(rx, ry);
+    const grid = screenToGrid(rx, ry);
 
     set({
-      cursorScreen: { x: screenX, y: screenY },
-      cursorWorld: world,
+      cursorScreen: { x: rx, y: ry },
+      cursorWorld: { x: Math.round(world.x), y: Math.round(world.y) },
       cursorGrid: { col: grid.col, row: grid.row },
     });
   },
@@ -362,8 +370,8 @@ export const useGridState = create<GridState>((set, get) => ({
   worldToScreen: (worldX, worldY) => {
     const { pan, zoom } = get();
     return {
-      x: pan.x + worldX * zoom,
-      y: pan.y - worldY * zoom, // Cartesian: inverted for screen raster
+      x: Math.round(pan.x + worldX * zoom),
+      y: Math.round(pan.y - worldY * zoom), // Cartesian: inverted for screen raster
     };
   },
 
@@ -379,14 +387,16 @@ export const useGridState = create<GridState>((set, get) => ({
     return basePrice + (worldY / baseUnit) * pricePerUnit;
   },
 
-  // Snap continuous world coordinates to nearest K&E baseUnit intersection
+  // Snap continuous world coordinates to nearest K&E baseUnit intersection using strict integer multiplier
   snapWorldToGrid: (worldX, worldY) => {
     const { baseUnit } = get();
-    const col = Math.round(worldX / baseUnit);
-    const row = Math.round(worldY / baseUnit);
+    const snappedX = Math.round(worldX / baseUnit) * baseUnit;
+    const snappedY = Math.round(worldY / baseUnit) * baseUnit;
+    const col = Math.round(snappedX / baseUnit);
+    const row = Math.round(snappedY / baseUnit);
     return {
-      snappedX: col * baseUnit,
-      snappedY: row * baseUnit,
+      snappedX,
+      snappedY,
       col,
       row,
     };
@@ -402,8 +412,8 @@ export const useGridState = create<GridState>((set, get) => ({
     return {
       col: snapped.col,
       row: snapped.row,
-      snappedScreenX: screenSnapped.x,
-      snappedScreenY: screenSnapped.y,
+      snappedScreenX: Math.round(screenSnapped.x),
+      snappedScreenY: Math.round(screenSnapped.y),
     };
   },
 }));
