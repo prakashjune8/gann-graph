@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useGridState } from "../store/useGridState";
 import { ChartDisplayMode } from "../types/gann";
 import CsvWorker from "../workers/csvWorker?worker&inline";
@@ -48,6 +48,22 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const [isParsing, setIsParsing] = useState(false);
   const [parseNotice, setParseNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeWorkerRef = useRef<Worker | null>(null);
+  const parseNoticeTimerRef = useRef<number | null>(null);
+
+  // Strict lifecycle cleanup to eradicate memory leaks on unmount
+  useEffect(() => {
+    return () => {
+      if (activeWorkerRef.current) {
+        activeWorkerRef.current.terminate();
+        activeWorkerRef.current = null;
+      }
+      if (parseNoticeTimerRef.current) {
+        window.clearTimeout(parseNoticeTimerRef.current);
+        parseNoticeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -64,8 +80,14 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         return;
       }
 
+      // Terminate any previous dangling worker instance
+      if (activeWorkerRef.current) {
+        activeWorkerRef.current.terminate();
+      }
+
       // Instantiate dedicated Web Worker (off-main-thread processing)
       const worker = new CsvWorker();
+      activeWorkerRef.current = worker;
 
       worker.onmessage = (msgEvt: MessageEvent<CsvWorkerResponse>) => {
         const data = msgEvt.data;
@@ -74,12 +96,14 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           setSwingPoints(data.swings);
           jumpToLatest(window.innerWidth, window.innerHeight);
           setParseNotice(`✓ ${data.totalRows} bars (${data.parseTimeMs}ms)`);
-          setTimeout(() => setParseNotice(null), 4000);
+          if (parseNoticeTimerRef.current) window.clearTimeout(parseNoticeTimerRef.current);
+          parseNoticeTimerRef.current = window.setTimeout(() => setParseNotice(null), 4000);
         } else {
           alert(`CSV Parse Error: ${data.error || "Failed to parse data."}`);
         }
         setIsParsing(false);
         worker.terminate();
+        activeWorkerRef.current = null;
       };
 
       worker.onerror = (err) => {
@@ -87,6 +111,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         alert("Worker encountered an error while parsing CSV.");
         setIsParsing(false);
         worker.terminate();
+        activeWorkerRef.current = null;
       };
 
       worker.postMessage({

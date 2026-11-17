@@ -1183,10 +1183,18 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const setupDpiListener = () => {
       if (typeof window === "undefined" || !window.matchMedia) return;
       if (dpiMediaQueryList) {
-        dpiMediaQueryList.removeEventListener("change", handleDpiChange);
+        if (dpiMediaQueryList.removeEventListener) {
+          dpiMediaQueryList.removeEventListener("change", handleDpiChange);
+        } else if ((dpiMediaQueryList as any).removeListener) {
+          (dpiMediaQueryList as any).removeListener(handleDpiChange);
+        }
       }
       dpiMediaQueryList = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-      dpiMediaQueryList.addEventListener("change", handleDpiChange);
+      if (dpiMediaQueryList.addEventListener) {
+        dpiMediaQueryList.addEventListener("change", handleDpiChange);
+      } else if ((dpiMediaQueryList as any).addListener) {
+        (dpiMediaQueryList as any).addListener(handleDpiChange);
+      }
     };
 
     setupDpiListener();
@@ -1198,12 +1206,27 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     handleDpiOrResize();
 
     return () => {
+      // 1. Disconnect ResizeObserver
       resizeObserver.disconnect();
+
+      // 2. Destroy DPI Watchdog matchMedia listener
       if (dpiMediaQueryList) {
-        dpiMediaQueryList.removeEventListener("change", handleDpiChange);
+        if (dpiMediaQueryList.removeEventListener) {
+          dpiMediaQueryList.removeEventListener("change", handleDpiChange);
+        } else if ((dpiMediaQueryList as any).removeListener) {
+          (dpiMediaQueryList as any).removeListener(handleDpiChange);
+        }
+        dpiMediaQueryList = null;
       }
+
+      // 3. Remove window resize fallback listener
       window.removeEventListener("resize", handleDpiOrResize);
-      if (sentinelTimeoutRef.current) window.clearTimeout(sentinelTimeoutRef.current);
+
+      // 4. Cancel active sentinel timer
+      if (sentinelTimeoutRef.current) {
+        window.clearTimeout(sentinelTimeoutRef.current);
+        sentinelTimeoutRef.current = null;
+      }
     };
   }, [renderGrid, renderChart, renderRulers, renderCrosshair, baseUnit, majorUnit]);
 
