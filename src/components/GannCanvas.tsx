@@ -1355,20 +1355,21 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   }, [zoomAt]);
 
   /**
-   * MOUSE HANDLERS (Interacting on Layer 4 crosshairCanvas)
+   * MOUSE HANDLERS (Master Container Interaction Capture - Pre-Flight Patch 2)
+   * Captures interactions strictly on the outer master container to bypass canvas Z-index depth.
    */
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button === 0 || e.button === 1) {
       isDraggingRef.current = true;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = crosshairCanvasRef.current;
-    if (!canvas) return;
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    if (!container) return;
 
-    const rect = canvas.getBoundingClientRect();
+    const rect = container.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
 
@@ -1398,6 +1399,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   return (
     <div
       ref={containerRef}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       style={{
         position: "relative",
         width: "100%",
@@ -1405,9 +1411,10 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         overflow: "hidden",
         backgroundColor: DRAFTING_THEME.paperBackground,
         cursor: isDraggingRef.current ? "grabbing" : "crosshair",
+        pointerEvents: "auto",
       }}
     >
-      {/* LAYER 1 (z-index: 10): Background & K&E 8x8 Grid (Hardware Tiled) */}
+      {/* LAYER 1 (z-index: 10): Background & K&E 8x8 Grid (Ghost Canvas) */}
       <canvas
         ref={gridCanvasRef}
         width={Math.round(viewportSize.width * viewportSize.dpr)}
@@ -1422,7 +1429,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           pointerEvents: "none",
         }}
       />
-      {/* LAYER 2 (z-index: 20): Candlesticks, Volume, and Swings */}
+      {/* LAYER 2 (z-index: 20): Candlesticks, Volume, and Swings (Ghost Canvas) */}
       <canvas
         ref={chartCanvasRef}
         width={Math.round(viewportSize.width * viewportSize.dpr)}
@@ -1437,7 +1444,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           pointerEvents: "none",
         }}
       />
-      {/* LAYER 3 (z-index: 25): Fixed Four-Sided Axis Rulers & Corner Junctions (Static on mousemove) */}
+      {/* LAYER 3 (z-index: 25): Fixed Four-Sided Axis Rulers & Corner Junctions (Ghost Canvas) */}
       <canvas
         ref={rulerCanvasRef}
         width={Math.round(viewportSize.width * viewportSize.dpr)}
@@ -1452,16 +1459,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           pointerEvents: "none",
         }}
       />
-      {/* LAYER 4 (z-index: 30): Precision Crosshair & Reticle (Microscopic Dirty-Rect Updates) */}
+      {/* LAYER 4 (z-index: 30): Precision Crosshair & Reticle (Ghost Canvas) */}
       <canvas
         ref={crosshairCanvasRef}
         width={Math.round(viewportSize.width * viewportSize.dpr)}
         height={Math.round(viewportSize.height * viewportSize.dpr)}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
         style={{
           position: "absolute",
           top: 0,
@@ -1469,6 +1471,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           width: `${viewportSize.width}px`,
           height: `${viewportSize.height}px`,
           zIndex: 30,
+          pointerEvents: "none",
           display: "block",
         }}
       />
