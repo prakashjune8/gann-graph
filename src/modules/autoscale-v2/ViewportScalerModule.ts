@@ -18,6 +18,7 @@ import { velocityToPricePerUnit } from "./PixelTranslator";
 
 let isScalerActive = true;
 let lockedScale: number | null = null;
+let lockedMultiplier: number | null = null;
 let lockedUpperBoundary = 0;
 let lockedLowerBoundary = 0;
 let unregisterOverlayFn: (() => void) | null = null;
@@ -72,10 +73,17 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
     const seedPrice = genesis.atlNode.price > 0 ? genesis.atlNode.price : visibleMinPrice;
     const baseVibration = seedPrice / 8;
 
-    // Pass through Harmonic Octave Multiplier (Base-10 magnitude shift + Base-2 octave expansion)
-    const finalVibration = getExpandedVibration(baseVibration, seedPrice, visibleMaxPrice, visibleRange);
+    // Pass through Harmonic Octave Multiplier (Unified Harmonic Sequence with Magnitude Hysteresis)
+    const finalVibration = getExpandedVibration(
+      baseVibration,
+      seedPrice,
+      visibleMaxPrice,
+      visibleRange,
+      lockedMultiplier ?? undefined
+    );
 
     if (Number.isFinite(finalVibration) && finalVibration > 0) {
+      lockedMultiplier = Math.round(finalVibration / baseVibration);
       // Fetch the current grid sizes: colWidth = bridge.getState().zoom.x * BASE_CELL_WIDTH and rowHeight = bridge.getState().zoom.y * BASE_CELL_HEIGHT
       const state = bridge.getState();
       const baseCellWidth = state.baseUnit || 12;
@@ -147,6 +155,7 @@ export const ViewportScalerModule: GannModule = {
         isScalerActive = !isScalerActive;
         if (!isScalerActive) {
           lockedScale = null;
+          lockedMultiplier = null;
           lockedUpperBoundary = 0;
           lockedLowerBoundary = 0;
         } else {
@@ -158,6 +167,7 @@ export const ViewportScalerModule: GannModule = {
   initialize: (bridge: IGridBridge) => {
     isScalerActive = true;
     lockedScale = null;
+    lockedMultiplier = null;
     lockedUpperBoundary = 0;
     lockedLowerBoundary = 0;
 
@@ -172,6 +182,7 @@ export const ViewportScalerModule: GannModule = {
   destroy: () => {
     isScalerActive = false;
     lockedScale = null;
+    lockedMultiplier = null;
     lockedUpperBoundary = 0;
     lockedLowerBoundary = 0;
     if (unregisterOverlayFn) {
