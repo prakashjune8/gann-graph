@@ -1209,6 +1209,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const logicalWidth = Math.round(rect.width) || window.innerWidth;
       const logicalHeight = Math.round(rect.height) || window.innerHeight;
 
+      // Update Zustand screen dimensions for anchor calibrations
+      useGridState.setState({ screenWidth: logicalWidth, screenHeight: logicalHeight });
+
       // 1. Update React state for inline styles and JSX attributes
       setViewportSize((prev) => {
         if (

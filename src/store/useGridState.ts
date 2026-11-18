@@ -113,6 +113,10 @@ export interface GridState {
   cursorGrid: GridCoord;
   isHovered: boolean;
 
+  // Viewport Screen Dimensions
+  screenWidth: number;
+  screenHeight: number;
+
   // Market Datasets
   basePrice: number;    // Base price anchor for row = 0
   pricePerUnit: number; // Price points per baseUnit minor square (e.g. ₹25.00/square)
@@ -143,7 +147,7 @@ export interface GridState {
   toggleCrosshair: () => void;
 
   // Data Actions
-  calibratePriceScale: (input: CandleData[] | number) => void;
+  calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
   addSwingPoint: (point: SwingPoint) => void;
@@ -156,6 +160,7 @@ export interface GridState {
   worldToScreen: (worldX: number, worldY: number) => Point2D;
   priceToWorldY: (price: number) => number;
   worldYToPrice: (worldY: number) => number;
+  worldToPrice: (worldY: number) => number;
   snapWorldToGrid: (worldX: number, worldY: number) => {
     snappedX: number;
     snappedY: number;
@@ -212,6 +217,9 @@ export const useGridState = create<GridState>((set, get) => ({
   cursorWorld: { x: 0, y: 0 },
   cursorGrid: { col: 0, row: 0 },
   isHovered: false,
+
+  screenWidth: typeof window !== "undefined" ? window.innerWidth : 1440,
+  screenHeight: typeof window !== "undefined" ? window.innerHeight : 900,
 
   basePrice: 21500,
   pricePerUnit: 25.0,
@@ -342,11 +350,25 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleAxisTransparency: () => set((s) => ({ isAxisTransparent: !s.isAxisTransparent })),
   toggleCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
 
-  // Gann Harmonic Auto-Scale Calibrator (Sprint 1)
-  calibratePriceScale: (input: CandleData[] | number) => {
+  // Gann Harmonic Auto-Scale Calibrator (Sprint 1 & Auto-Scale V2 Anchor Patch)
+  calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => {
     if (typeof input === "number") {
       if (Number.isFinite(input) && input > 0) {
-        set({ pricePerUnit: input });
+        const newScale = input;
+        const { pan, zoom, baseUnit, basePrice, screenHeight } = get();
+        const updates: Partial<GridState> = { pricePerUnit: newScale };
+
+        if (maintainCenterPrice !== undefined && Number.isFinite(maintainCenterPrice)) {
+          const zoomVal = typeof zoom === "number" ? zoom : ((zoom as any).y ?? 1.0);
+          const safeDivisor = Math.max(0.0001, newScale);
+          const newWorldY = ((maintainCenterPrice - basePrice) / safeDivisor) * baseUnit;
+          const canvasH = screenHeight || (typeof window !== "undefined" ? window.innerHeight : 900);
+          const centerY = canvasH / 2;
+          const newPanY = Math.round(centerY + newWorldY * zoomVal);
+          updates.pan = { x: pan.x, y: newPanY };
+        }
+
+        set(updates);
       }
       return;
     }
@@ -392,10 +414,23 @@ export const useGridState = create<GridState>((set, get) => ({
     const harmonicBlock = closestHarmonic * 8;
     const calculatedBasePrice = Math.max(0, Math.floor(minPrice / harmonicBlock) * harmonicBlock);
 
-    set({
+    const updates: Partial<GridState> = {
       pricePerUnit: closestHarmonic,
       basePrice: calculatedBasePrice,
-    });
+    };
+
+    if (maintainCenterPrice !== undefined && Number.isFinite(maintainCenterPrice)) {
+      const { pan, zoom, baseUnit, screenHeight } = get();
+      const zoomVal = typeof zoom === "number" ? zoom : ((zoom as any).y ?? 1.0);
+      const safeDivisor = Math.max(0.0001, closestHarmonic);
+      const newWorldY = ((maintainCenterPrice - calculatedBasePrice) / safeDivisor) * baseUnit;
+      const canvasH = screenHeight || (typeof window !== "undefined" ? window.innerHeight : 900);
+      const centerY = canvasH / 2;
+      const newPanY = Math.round(centerY + newWorldY * zoomVal);
+      updates.pan = { x: pan.x, y: newPanY };
+    }
+
+    set(updates);
   },
 
   setCandles: (candles) => {
@@ -453,6 +488,11 @@ export const useGridState = create<GridState>((set, get) => ({
     const { basePrice, pricePerUnit, baseUnit } = get();
     const safeDivisor = Math.max(0.0001, pricePerUnit);
     return basePrice + (worldY / baseUnit) * safeDivisor;
+  },
+
+  // Alias for worldYToPrice
+  worldToPrice: (worldY: number) => {
+    return get().worldYToPrice(worldY);
   },
 
   // Snap continuous world coordinates to nearest K&E baseUnit intersection using strict integer multiplier

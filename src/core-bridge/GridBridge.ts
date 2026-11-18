@@ -48,6 +48,7 @@ export interface IGridBridge {
   worldToScreen(worldX: number, worldY: number): Point2D;
   priceToWorldY(price: number): number;
   worldYToPrice(worldY: number): number;
+  worldToPrice(worldY: number): number;
   snapWorldToGrid(worldX: number, worldY: number): {
     snappedX: number;
     snappedY: number;
@@ -78,7 +79,7 @@ export interface IGridBridge {
   setCandles(candles: CandleData[]): void;
   setSwingPoints(points: SwingPoint[]): void;
   addSwingPoint(point: SwingPoint): void;
-  calibratePriceScale(input: CandleData[] | number): void;
+  calibratePriceScale(input: CandleData[] | number, maintainCenterPrice?: number): void;
   clearAllData(): void;
   loadSampleDataset(): void;
 
@@ -179,6 +180,10 @@ class CoreGridBridge implements IGridBridge {
     return useGridState.getState().worldYToPrice(worldY);
   }
 
+  worldToPrice(worldY: number): number {
+    return useGridState.getState().worldToPrice(worldY);
+  }
+
   snapWorldToGrid(worldX: number, worldY: number) {
     return useGridState.getState().snapWorldToGrid(worldX, worldY);
   }
@@ -238,8 +243,8 @@ class CoreGridBridge implements IGridBridge {
     useGridState.getState().addSwingPoint(point);
   }
 
-  calibratePriceScale(input: CandleData[] | number): void {
-    useGridState.getState().calibratePriceScale(input);
+  calibratePriceScale(input: CandleData[] | number, maintainCenterPrice?: number): void {
+    useGridState.getState().calibratePriceScale(input, maintainCenterPrice);
   }
 
   clearAllData(): void {

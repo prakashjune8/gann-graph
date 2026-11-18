@@ -95,7 +95,13 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
 
       const currentScale = bridge.getPricePerUnit();
       if (Math.abs(currentScale - lockedScale) > 0.0001) {
-        bridge.calibratePriceScale(lockedScale);
+        // Calculate screen vertical center to anchor price and prevent vertical displacement
+        const screenH = state.screenHeight || height || 600;
+        const centerY = screenH / 2;
+        const centerWorld = bridge.screenToWorld(0, centerY);
+        const centerPrice = bridge.worldToPrice(centerWorld.y);
+
+        bridge.calibratePriceScale(lockedScale, centerPrice);
       }
     }
   } finally {
