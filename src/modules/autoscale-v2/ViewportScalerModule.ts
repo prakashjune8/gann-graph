@@ -21,13 +21,15 @@ let lockedScale: number | null = null;
 let lockedMultiplier: number | null = null;
 let lockedUpperBoundary = 0;
 let lockedLowerBoundary = 0;
+let gapLockActive = false;
 let unregisterOverlayFn: (() => void) | null = null;
 let unsubscribeBridgeFn: (() => void) | null = null;
 let isRecalibrating = false;
 
 /**
- * Evaluates current visible price bounds against the 3% hysteresis deadband
- * and recalculates/dispatches the expanded octave scale if the deadband is breached.
+ * Evaluates current visible price bounds against hysteresis deadbands
+ * and recalculates/dispatches the expanded octave scale when boundaries are breached.
+ * Enforces The Gap Lock to suppress recalculation loops when panning across overnight price gaps.
  */
 function evaluateViewportScale(bridge: IGridBridge, height: number): void {
   if (!isScalerActive || isRecalibrating) return;
@@ -50,20 +52,62 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
   }
 
   // =========================================================================
-  // 1. 3% HYSTERESIS DEADBAND LOGIC
+  // 1. VIEWPORT GAP SCANNER & HYSTERESIS SUPPRESSION PROTOCOL
+  // =========================================================================
+  const state = bridge.getState();
+  const baseUnit = state.baseUnit || 12;
+  const screenWidth = state.screenWidth || (typeof window !== "undefined" ? window.innerWidth : 1440);
+  const leftWorld = bridge.screenToWorld(0, 0);
+  const rightWorld = bridge.screenToWorld(screenWidth, 0);
+  const leftCol = Math.min(leftWorld.x, rightWorld.x) / baseUnit;
+  const rightCol = Math.max(leftWorld.x, rightWorld.x) / baseUnit;
+
+  // Fetch the currently visible subset of candles based on visible columns (leftCol to rightCol)
+  const visibleCandles = candles.filter((c) => c.gridCol >= leftCol - 1 && c.gridCol <= rightCol + 1);
+
+  // Iterate through visible subset to calculate maximum adjacent price gap
+  let maxVisibleGapPercent = 0;
+  for (let i = 1; i < visibleCandles.length; i++) {
+    const prev = visibleCandles[i - 1];
+    const curr = visibleCandles[i];
+    if (prev.close > 0) {
+      const gapPercent = Math.abs(curr.open - prev.close) / prev.close;
+      if (gapPercent > maxVisibleGapPercent) {
+        maxVisibleGapPercent = gapPercent;
+      }
+    }
+  }
+
+  const HYSTERESIS_THRESHOLD = 0.03; // 3%
+  const isGapDetected = maxVisibleGapPercent > HYSTERESIS_THRESHOLD;
+
+  // Once the user pans far enough that the gap leaves the screen, gapLockActive drops to false
+  gapLockActive = isGapDetected;
+
+  // =========================================================================
+  // 2. BOUNDARY DEADBAND CHECK (3% STANDARD vs. 10% GAP LOCK OVERRIDE)
   // =========================================================================
   if (lockedScale !== null && lockedUpperBoundary > 0 && lockedLowerBoundary > 0) {
-    const isUpperBreached = visibleMaxPrice > lockedUpperBoundary * 1.03;
-    const isLowerBreached = visibleMinPrice < lockedLowerBoundary * 0.97;
+    if (gapLockActive) {
+      // Macro-Scale Override: Widen temporary lock boundaries to +/- 10% to absorb gap volatility
+      // without triggering rapid recalculation loops
+      if (visibleMaxPrice <= lockedUpperBoundary && visibleMinPrice >= lockedLowerBoundary) {
+        return;
+      }
+    } else {
+      // Standard 3% Hysteresis Deadband Logic
+      const isUpperBreached = visibleMaxPrice > lockedUpperBoundary * 1.03;
+      const isLowerBreached = visibleMinPrice < lockedLowerBoundary * 0.97;
 
-    if (!isUpperBreached && !isLowerBreached) {
-      // Strictly inside the 3% buffer zone -> maintain buttery smooth chart
-      return;
+      if (!isUpperBreached && !isLowerBreached) {
+        // Strictly inside the 3% buffer zone -> maintain buttery smooth chart
+        return;
+      }
     }
   }
 
   // =========================================================================
-  // 2. SCALE RECALCULATION & DISPATCH
+  // 3. SCALE RECALCULATION & DISPATCH
   // =========================================================================
   try {
     isRecalibrating = true;
@@ -84,8 +128,6 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
 
     if (Number.isFinite(finalVibration) && finalVibration > 0) {
       lockedMultiplier = Math.round(finalVibration / baseVibration);
-      // Fetch the current grid sizes: colWidth = bridge.getState().zoom.x * BASE_CELL_WIDTH and rowHeight = bridge.getState().zoom.y * BASE_CELL_HEIGHT
-      const state = bridge.getState();
       const baseCellWidth = state.baseUnit || 12;
       const baseCellHeight = state.baseUnit || 12;
       const zoomVal = state.zoom;
@@ -98,8 +140,14 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
       const translatedPPU = velocityToPricePerUnit(finalVibration, colWidth, rowHeight);
 
       lockedScale = translatedPPU;
-      lockedUpperBoundary = visibleMaxPrice;
-      lockedLowerBoundary = visibleMinPrice;
+      if (gapLockActive) {
+        // Macro-Scale Override: Widen temporary lock boundaries to +/- 10%
+        lockedUpperBoundary = visibleMaxPrice * 1.10;
+        lockedLowerBoundary = visibleMinPrice * 0.90;
+      } else {
+        lockedUpperBoundary = visibleMaxPrice;
+        lockedLowerBoundary = visibleMinPrice;
+      }
 
       const currentScale = bridge.getPricePerUnit();
       if (Math.abs(currentScale - lockedScale) > 0.0001) {
@@ -158,6 +206,7 @@ export const ViewportScalerModule: GannModule = {
           lockedMultiplier = null;
           lockedUpperBoundary = 0;
           lockedLowerBoundary = 0;
+          gapLockActive = false;
         } else {
           evaluateViewportScale(bridge, 600);
         }
@@ -170,6 +219,7 @@ export const ViewportScalerModule: GannModule = {
     lockedMultiplier = null;
     lockedUpperBoundary = 0;
     lockedLowerBoundary = 0;
+    gapLockActive = false;
 
     if (unregisterOverlayFn) {
       unregisterOverlayFn();
@@ -185,6 +235,7 @@ export const ViewportScalerModule: GannModule = {
     lockedMultiplier = null;
     lockedUpperBoundary = 0;
     lockedLowerBoundary = 0;
+    gapLockActive = false;
     if (unregisterOverlayFn) {
       unregisterOverlayFn();
       unregisterOverlayFn = null;
