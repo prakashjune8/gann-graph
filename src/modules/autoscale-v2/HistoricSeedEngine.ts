@@ -310,8 +310,16 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
   const atlCandle = fullDataset[atlIdx];
   const athCandle = fullDataset[athIdx];
 
+  // Strictly sanitize discrete column index to prevent raw JS Date millisecond timestamps (e.g. 1.71 Trillion)
+  const safeAtlCol = Number.isFinite(atlCandle.gridCol) && atlCandle.gridCol < 10000000
+    ? atlCandle.gridCol
+    : atlIdx * 2;
+  const safeAthCol = Number.isFinite(athCandle.gridCol) && athCandle.gridCol < 10000000
+    ? athCandle.gridCol
+    : athIdx * 2;
+
   const atlNode: GenesisNode = {
-    col: atlCandle.gridCol,
+    col: safeAtlCol,
     price: atlCandle.low,
     type: "LL",
     label: "ATL",
@@ -323,7 +331,7 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
   };
 
   const athNode: GenesisNode = {
-    col: athCandle.gridCol,
+    col: safeAthCol,
     price: athCandle.high,
     type: "HH",
     label: "ATH",
@@ -346,11 +354,13 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
 
   for (let i = 0; i < Math.min(3, candidateLows.length); i++) {
     const swing = candidateLows[i];
-    // Strict column math: deltaT = node.col - anchor.col (Vulnerability A)
-    const deltaT = Math.max(1, swing.col - atlNode.col);
+    // Strict column math: deltaT = node.col - anchor.col (strictly discrete column indices, never timestamps)
+    const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 ? swing.col : (safeAtlCol + i + 1);
+    const deltaT = Math.max(1, swingCol - safeAtlCol);
     const priceDelta = Math.abs(swing.price - atlNode.price);
     bullNodes.push({
       ...swing,
+      col: swingCol,
       label: bullLabels[i],
       indexInDataset: atlIdx + bullSlice.findIndex((c) => c.gridCol === swing.col),
       deltaTFromAnchor: deltaT,
@@ -400,11 +410,13 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
 
   for (let i = 0; i < Math.min(3, candidateHighs.length); i++) {
     const swing = candidateHighs[i];
-    // Strict column math: deltaT = node.col - anchor.col (Vulnerability A)
-    const deltaT = Math.max(1, swing.col - athNode.col);
+    // Strict column math: deltaT = node.col - anchor.col (strictly discrete column indices, never timestamps)
+    const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 ? swing.col : (safeAthCol + i + 1);
+    const deltaT = Math.max(1, swingCol - safeAthCol);
     const priceDelta = Math.abs(athNode.price - swing.price);
     bearNodes.push({
       ...swing,
+      col: swingCol,
       label: bearLabels[i],
       indexInDataset: athIdx + bearSlice.findIndex((c) => c.gridCol === swing.col),
       deltaTFromAnchor: deltaT,
@@ -443,11 +455,16 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
     }
   }
 
-  // 4. Calculate Genesis Velocities
+  // 4. Calculate Genesis Velocities strictly using discrete column deltas
   const l3 = bullNodes[2];
   const h3 = bearNodes[2];
-  const bullGenesisVelocity = Math.max(0.0001, (l3.price - atlNode.price) / Math.max(1, l3.col - atlNode.col));
-  const bearGenesisVelocity = Math.max(0.0001, (athNode.price - h3.price) / Math.max(1, h3.col - athNode.col));
+  const safeL3Col = Number.isFinite(l3.col) && l3.col < 10000000 ? l3.col : (safeAtlCol + 3);
+  const safeH3Col = Number.isFinite(h3.col) && h3.col < 10000000 ? h3.col : (safeAthCol + 3);
+  const bullDeltaT = Math.max(1, safeL3Col - safeAtlCol);
+  const bearDeltaT = Math.max(1, safeH3Col - safeAthCol);
+
+  const bullGenesisVelocity = Math.max(0.0001, Math.abs(l3.price - atlNode.price) / bullDeltaT);
+  const bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h3.price) / bearDeltaT);
 
   // 5. Proof of the Seed validation
   const bullProof = validateSeed(atlNode.price, bullNodes, 0.01);

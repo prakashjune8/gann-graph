@@ -37,15 +37,31 @@ export function velocityToPricePerUnit(
   columnWidthPixels: number,
   rowHeightPixels: number
 ): number {
-  if (!Number.isFinite(gannVelocity) || gannVelocity <= 0) {
+  if (!Number.isFinite(Number(gannVelocity)) || Number(gannVelocity) <= 0) {
     return 1.0;
   }
 
-  const safeColWidth = Math.max(0.0001, Number.isFinite(columnWidthPixels) ? columnWidthPixels : 12);
-  const safeRowHeight = Math.max(0.0001, Number.isFinite(rowHeightPixels) ? rowHeightPixels : 12);
+  // Ensure columnWidthPixels and rowHeightPixels can never evaluate to 0 or NaN
+  const safeColWidth = Math.max(
+    0.1,
+    Number.isFinite(Number(columnWidthPixels)) && Number(columnWidthPixels) > 0
+      ? Number(columnWidthPixels)
+      : 12
+  );
+  const safeRowHeight = Math.max(
+    0.1,
+    Number.isFinite(Number(rowHeightPixels)) && Number(rowHeightPixels) > 0
+      ? Number(rowHeightPixels)
+      : 12
+  );
 
-  const aspectRatio = safeColWidth / safeRowHeight;
-  const basePricePerUnit = gannVelocity / Math.max(0.0001, aspectRatio);
+  // Enforce explicit Number casting & division guard
+  const basePricePerUnit =
+    Number(gannVelocity) / Math.max(0.1, Number(safeColWidth / safeRowHeight));
+
+  if (!Number.isFinite(basePricePerUnit) || basePricePerUnit <= 0) {
+    return 1.0;
+  }
 
   return Math.round(basePricePerUnit * 10000) / 10000;
 }
@@ -58,16 +74,26 @@ export function velocityToPricePerUnitDetail(
   columnWidthPixels: number,
   rowHeightPixels: number
 ): VelocityTranslationDetail {
-  const safeColWidth = Math.max(0.0001, Number.isFinite(columnWidthPixels) ? columnWidthPixels : 12);
-  const safeRowHeight = Math.max(0.0001, Number.isFinite(rowHeightPixels) ? rowHeightPixels : 12);
-  const aspectRatio = safeColWidth / safeRowHeight;
+  const safeColWidth = Math.max(
+    0.1,
+    Number.isFinite(Number(columnWidthPixels)) && Number(columnWidthPixels) > 0
+      ? Number(columnWidthPixels)
+      : 12
+  );
+  const safeRowHeight = Math.max(
+    0.1,
+    Number.isFinite(Number(rowHeightPixels)) && Number(rowHeightPixels) > 0
+      ? Number(rowHeightPixels)
+      : 12
+  );
+  const aspectRatio = Number(safeColWidth / safeRowHeight);
 
   const translatedPricePerUnit = velocityToPricePerUnit(gannVelocity, safeColWidth, safeRowHeight);
   const isPerfectSquare = Math.abs(aspectRatio - 1.0) < 0.001;
 
   return {
     translatedPricePerUnit,
-    gannVelocity,
+    gannVelocity: Number(gannVelocity),
     columnWidthPixels: safeColWidth,
     rowHeightPixels: safeRowHeight,
     aspectRatio: Math.round(aspectRatio * 10000) / 10000,

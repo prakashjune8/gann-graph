@@ -28,10 +28,11 @@ export interface ExpandedVibrationDetail {
  * fusing Base-10 and Base-2:
  * [1, 2, 4, 8, 10, 20, 40, 80, 100, 200, 400, 800, 1000, 2000, 4000, 8000, 10000...]
  */
-export function generateUnifiedHarmonicMultipliers(maxDecade: number = 8): number[] {
+export function generateUnifiedHarmonicMultipliers(maxDecade: number = 5): number[] {
   const multipliers: number[] = [];
   const base2Factors = [1, 2, 4, 8];
-  for (let decade = 0; decade <= maxDecade; decade++) {
+  const clampedDecade = Math.min(5, Math.max(0, maxDecade));
+  for (let decade = 0; decade <= clampedDecade; decade++) {
     const pow10 = Math.pow(10, decade);
     for (const factor of base2Factors) {
       multipliers.push(factor * pow10);
@@ -58,7 +59,7 @@ export function getUnifiedMultiplier(baseVibration: number, visibleRange: number
 
   if (safeRange <= 0) return 1;
 
-  const multipliers = generateUnifiedHarmonicMultipliers(8);
+  const multipliers = generateUnifiedHarmonicMultipliers(5);
   const TARGET_LINES = 16; // Midpoint of 8-24 optimal band
 
   let bestMultiplier = multipliers[0];
@@ -73,19 +74,20 @@ export function getUnifiedMultiplier(baseVibration: number, visibleRange: number
     }
   }
 
-  return bestMultiplier;
+  return Math.min(800000, bestMultiplier);
 }
 
 /**
  * The Base-10 Magnitude Shift (The Gann Decimal Rule):
  * Calculates the logarithmic difference between the current visible price and the historic seed.
- * Maintained for backward compatibility and analytical inspection.
+ * Injects a strict mathematical clamper to cap the magnitude at 5 (100,000x), physically
+ * preventing the scale from ever reaching trillions.
  */
 export function calculateMagnitudeShift(seedPrice: number, currentVisiblePrice: number): number {
-  const safeSeed = Math.max(0.0001, Number.isFinite(seedPrice) ? seedPrice : 1.0);
+  const safeSeed = Math.max(1, Number.isFinite(seedPrice) ? seedPrice : 1.0);
   const safePrice = Math.max(0.0001, Number.isFinite(currentVisiblePrice) ? currentVisiblePrice : 1.0);
 
-  const magnitude = Math.floor(Math.log10(safePrice / safeSeed));
+  const magnitude = Math.min(5, Math.floor(Math.log10(safePrice / safeSeed)));
   return Math.pow(10, Math.max(0, magnitude));
 }
 
@@ -97,11 +99,11 @@ export function calculateMagnitudeShiftDetail(
   seedPrice: number,
   currentVisiblePrice: number
 ): MagnitudeShiftResult {
-  const safeSeed = Math.max(0.0001, Number.isFinite(seedPrice) ? seedPrice : 1.0);
+  const safeSeed = Math.max(1, Number.isFinite(seedPrice) ? seedPrice : 1.0);
   const safePrice = Math.max(0.0001, Number.isFinite(currentVisiblePrice) ? currentVisiblePrice : 1.0);
 
   const rawMagnitude = Math.floor(Math.log10(safePrice / safeSeed));
-  const magnitude = Math.max(0, rawMagnitude);
+  const magnitude = Math.min(5, Math.max(0, rawMagnitude));
   const decimalMultiplier = Math.pow(10, magnitude);
 
   return {
@@ -152,7 +154,7 @@ export function getExpandedVibration(
   visibleRange: number,
   previousMultiplier?: number
 ): number {
-  void seedPrice;
+  const safeSeed = Math.max(1, Number.isFinite(seedPrice) ? seedPrice : 1.0);
   const safeBase = Math.max(0.0001, Number.isFinite(baseVibration) ? baseVibration : 1.0);
   const safePrice = Math.max(0.0001, Number.isFinite(currentVisiblePrice) ? currentVisiblePrice : 1.0);
   const safeRange = Math.max(0, Number.isFinite(visibleRange) ? visibleRange : 0);
@@ -162,14 +164,12 @@ export function getExpandedVibration(
   let multiplier = getUnifiedMultiplier(safeBase, safeRange);
 
   // =========================================================================
-  // MAGNITUDE HYSTERESIS INJECTION:
-  // If the newly calculated unified multiplier differs from previousMultiplier,
-  // check whether price is hovering within +/- 5% of a decimal magnitude threshold
-  // (e.g. hovering between 9,500 and 10,500 around 10,000).
+  // MAGNITUDE HYSTERESIS INJECTION WITH STRICT CLAMPER:
+  // Cap magnitude at 5 (100,000x), physically preventing scale from reaching trillions.
   // =========================================================================
   if (previousMultiplier && previousMultiplier > 0 && multiplier !== previousMultiplier) {
-    const magnitude = Math.round(Math.log10(safePrice));
-    const nearestPower10 = Math.pow(10, Math.max(0, magnitude));
+    const magnitude = Math.min(5, Math.max(0, Math.floor(Math.log10(safePrice / safeSeed))));
+    const nearestPower10 = Math.pow(10, magnitude);
     const priceDeviation = Math.abs(safePrice - nearestPower10) / nearestPower10;
 
     // The Lock: If the price is within a +/- 5% boundary of the magnitude threshold,
@@ -180,7 +180,9 @@ export function getExpandedVibration(
     }
   }
 
-  const finalVibration = safeBase * multiplier;
+  // Strict clamp on multiplier to max 800,000x (decade 5)
+  const clampedMultiplier = Math.min(800000, Math.max(1, multiplier));
+  const finalVibration = safeBase * clampedMultiplier;
   return Math.round(finalVibration * 10000) / 10000;
 }
 
