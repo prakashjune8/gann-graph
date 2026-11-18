@@ -74,7 +74,7 @@ export function getUnifiedMultiplier(baseVibration: number, visibleRange: number
     }
   }
 
-  return Math.min(800000, bestMultiplier);
+  return Math.min(1000, bestMultiplier);
 }
 
 /**
@@ -180,8 +180,8 @@ export function getExpandedVibration(
     }
   }
 
-  // Strict clamp on multiplier to max 800,000x (decade 5)
-  const clampedMultiplier = Math.min(800000, Math.max(1, multiplier));
+  // Strict clamp on multiplier to max 1,000x (decade 3)
+  const clampedMultiplier = Math.min(1000, Math.max(1, multiplier));
   const finalVibration = safeBase * clampedMultiplier;
   return Math.round(finalVibration * 10000) / 10000;
 }

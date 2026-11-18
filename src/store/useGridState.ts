@@ -365,7 +365,8 @@ export const useGridState = create<GridState>((set, get) => ({
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => {
     if (typeof input === "number") {
       if (Number.isFinite(input) && input > 0) {
-        const newScale = input;
+        // Hard clamping guard: Prevent any scale explosion (standard equity/index scale is 0.1 to 1000)
+        const newScale = Math.min(10000, Math.max(0.01, input));
         const { pan, zoom, baseUnit, basePrice, screenHeight } = get();
         const updates: Partial<GridState> = { pricePerUnit: newScale };
 

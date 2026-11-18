@@ -37,22 +37,23 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
   const candles = bridge.getCandles();
   if (!candles || candles.length === 0) return;
 
-  const topWorld = bridge.screenToWorld(0, 0);
-  const bottomWorld = bridge.screenToWorld(0, height > 0 ? height : 600);
-
-  const priceAtTop = bridge.worldYToPrice(topWorld.y);
-  const priceAtBottom = bridge.worldYToPrice(bottomWorld.y);
-
-  const visibleMaxPrice = Math.max(priceAtTop, priceAtBottom);
-  const visibleMinPrice = Math.min(priceAtTop, priceAtBottom);
-  const visibleRange = Math.max(1, visibleMaxPrice - visibleMinPrice);
-
-  if (!Number.isFinite(visibleMaxPrice) || !Number.isFinite(visibleMinPrice) || visibleMaxPrice <= 0) {
+  // =========================================================================
+  // CORRUPTED STATE SANITY GUARD:
+  // If pricePerUnit has leaked or exploded (> 1000 or <= 0), reset to 25.0 immediately
+  // =========================================================================
+  if (bridge.getPricePerUnit() > 1000 || bridge.getPricePerUnit() <= 0) {
+    bridge.calibratePriceScale(25.0);
+    lockedScale = null;
+    lockedUpperBoundary = 0;
+    lockedLowerBoundary = 0;
+    lockedMultiplier = null;
     return;
   }
 
   // =========================================================================
-  // 1. VIEWPORT GAP SCANNER & HYSTERESIS SUPPRESSION PROTOCOL
+  // 1. DECOUPLED CANDLE-BASED VIEWPORT PRICE BOUNDARIES
+  // Calculate price bounds strictly from visible market candles (leftCol to rightCol),
+  // NEVER from worldYToPrice(screen pixels), eliminating positive feedback loops.
   // =========================================================================
   const state = bridge.getState();
   const baseUnit = state.baseUnit || 12;
@@ -62,10 +63,25 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
   const leftCol = Math.min(leftWorld.x, rightWorld.x) / baseUnit;
   const rightCol = Math.max(leftWorld.x, rightWorld.x) / baseUnit;
 
-  // Fetch the currently visible subset of candles based on visible columns (leftCol to rightCol)
-  const visibleCandles = candles.filter((c) => c.gridCol >= leftCol - 1 && c.gridCol <= rightCol + 1);
+  // Fetch the currently visible subset of candles based on visible columns
+  const visibleCandles = candles.filter((c) => c.gridCol >= leftCol - 2 && c.gridCol <= rightCol + 2);
+  const activeCandles = visibleCandles.length > 0 ? visibleCandles : candles;
 
-  // Iterate through visible subset to calculate maximum adjacent price gap
+  let candleMax = -Infinity;
+  let candleMin = Infinity;
+  for (let i = 0; i < activeCandles.length; i++) {
+    const c = activeCandles[i];
+    if (c.high > candleMax) candleMax = c.high;
+    if (c.low < candleMin) candleMin = c.low;
+  }
+
+  const visibleMaxPrice = Number.isFinite(candleMax) && candleMax > 0 ? candleMax : 22520;
+  const visibleMinPrice = Number.isFinite(candleMin) && candleMin > 0 ? candleMin : 21380;
+  const visibleRange = Math.max(10, visibleMaxPrice - visibleMinPrice);
+
+  // =========================================================================
+  // 2. VIEWPORT GAP SCANNER & HYSTERESIS SUPPRESSION PROTOCOL
+  // =========================================================================
   let maxVisibleGapPercent = 0;
   for (let i = 1; i < visibleCandles.length; i++) {
     const prev = visibleCandles[i - 1];
@@ -80,28 +96,14 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
 
   const HYSTERESIS_THRESHOLD = 0.03; // 3%
   const isGapDetected = maxVisibleGapPercent > HYSTERESIS_THRESHOLD;
-
-  // Once the user pans far enough that the gap leaves the screen, gapLockActive drops to false
   gapLockActive = isGapDetected;
 
   // =========================================================================
-  // CORRUPTED STATE GUARD:
-  // Instantly dump runaway or leaked scale locks (> 100,000) and force fresh calculation
-  // =========================================================================
-  if (lockedScale && lockedScale > 100000) {
-    lockedScale = null;
-    lockedUpperBoundary = 0;
-    lockedLowerBoundary = 0;
-    lockedMultiplier = null;
-  }
-
-  // =========================================================================
-  // 2. BOUNDARY DEADBAND CHECK (3% STANDARD vs. 10% GAP LOCK OVERRIDE)
+  // 3. BOUNDARY DEADBAND CHECK (3% STANDARD vs. 10% GAP LOCK OVERRIDE)
   // =========================================================================
   if (lockedScale !== null && lockedUpperBoundary > 0 && lockedLowerBoundary > 0) {
     if (gapLockActive) {
       // Macro-Scale Override: Widen temporary lock boundaries to +/- 10% to absorb gap volatility
-      // without triggering rapid recalculation loops
       if (visibleMaxPrice <= lockedUpperBoundary && visibleMinPrice >= lockedLowerBoundary) {
         return;
       }
@@ -118,15 +120,18 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
   }
 
   // =========================================================================
-  // 3. SCALE RECALCULATION & DISPATCH
+  // 4. SCALE RECALCULATION & DISPATCH
   // =========================================================================
   try {
     isRecalibrating = true;
 
-    // Fetch Master Genesis Vibration from HistoricSeedEngine
+    // Fetch Master Genesis Vibration from HistoricSeedEngine (geometric slope points/col)
     const genesis = extractGenesisNodes(candles as any);
     const seedPrice = genesis.atlNode.price > 0 ? genesis.atlNode.price : visibleMinPrice;
-    const baseVibration = seedPrice / 8;
+    const baseVibration =
+      genesis.bullGenesisVelocity > 0 && Number.isFinite(genesis.bullGenesisVelocity)
+        ? genesis.bullGenesisVelocity
+        : seedPrice * 0.001;
 
     // Pass through Harmonic Octave Multiplier (Unified Harmonic Sequence with Magnitude Hysteresis)
     const finalVibration = getExpandedVibration(
@@ -149,8 +154,9 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
 
       // Convert the vibration to pricePerUnit via PixelTranslator to guarantee a 1:1 screen aspect ratio
       const translatedPPU = velocityToPricePerUnit(finalVibration, colWidth, rowHeight);
+      const safeScale = Math.min(1000, Math.max(0.1, translatedPPU));
 
-      lockedScale = translatedPPU;
+      lockedScale = safeScale;
       if (gapLockActive) {
         // Macro-Scale Override: Widen temporary lock boundaries to +/- 10%
         lockedUpperBoundary = visibleMaxPrice * 1.10;
@@ -177,17 +183,25 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
 }
 
 function registerScalerHooks(bridge: IGridBridge): () => void {
-  // Hook 1: Transparent render overlay hook to measure exact viewport dimensions
+  // Hook 1: Transparent render overlay hook to measure exact viewport dimensions on resize
+  let lastHeight = 0;
   bridge.registerOverlay("autoscale-v2-viewport-scaler", (_ctx, b, dimensions) => {
     if (!isScalerActive) return;
-    evaluateViewportScale(b, dimensions.height);
+    if (dimensions.height !== lastHeight) {
+      lastHeight = dimensions.height;
+      evaluateViewportScale(b, dimensions.height);
+    }
   });
 
   // Hook 2: State change listener to catch pan/zoom adjustments
   const unsub = bridge.subscribe((state, prevState) => {
     if (!isScalerActive) return;
-    if (state.pan !== prevState.pan || state.zoom !== prevState.zoom) {
-      evaluateViewportScale(bridge, 600);
+    if (
+      state.pan.x !== prevState.pan.x ||
+      state.pan.y !== prevState.pan.y ||
+      state.zoom !== prevState.zoom
+    ) {
+      evaluateViewportScale(bridge, state.screenHeight || 600);
     }
   });
 
