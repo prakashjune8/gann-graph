@@ -35,3 +35,10 @@ build/
 # Portable Build Tools & Local Runtimes
 .tools/
 .runtime/
+
+# Data & Environment
+.env
+*.env
+*.duckdb
+*.duckdb.wal
+gann_market_data.duckdb
