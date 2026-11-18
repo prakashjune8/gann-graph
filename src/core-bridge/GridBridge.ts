@@ -22,6 +22,7 @@ export type OverlayRenderer = (
 
 export interface IGridBridge {
   // Read-Only Viewport State
+  getState(): GridState;
   getPan(): Point2D;
   getZoom(): number;
   getBaseUnit(): number;
@@ -95,6 +96,10 @@ class CoreGridBridge implements IGridBridge {
   private overlayChangeListeners: Set<() => void> = new Set();
 
   // Read-Only Viewport State
+  getState(): GridState {
+    return useGridState.getState();
+  }
+
   getPan(): Point2D {
     return useGridState.getState().pan;
   }

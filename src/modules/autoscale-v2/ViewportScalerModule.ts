@@ -14,6 +14,7 @@ import { GannModule } from "../../ModuleRegistry";
 import { IGridBridge } from "../../core-bridge/GridBridge";
 import { extractGenesisNodes } from "./HistoricSeedEngine";
 import { getExpandedVibration } from "./OctaveMultiplier";
+import { velocityToPricePerUnit } from "./PixelTranslator";
 
 let isScalerActive = true;
 let lockedScale: number | null = null;
@@ -75,7 +76,20 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
     const finalVibration = getExpandedVibration(baseVibration, seedPrice, visibleMaxPrice, visibleRange);
 
     if (Number.isFinite(finalVibration) && finalVibration > 0) {
-      lockedScale = finalVibration;
+      // Fetch the current grid sizes: colWidth = bridge.getState().zoom.x * BASE_CELL_WIDTH and rowHeight = bridge.getState().zoom.y * BASE_CELL_HEIGHT
+      const state = bridge.getState();
+      const baseCellWidth = state.baseUnit || 12;
+      const baseCellHeight = state.baseUnit || 12;
+      const zoomVal = state.zoom;
+      const zoomX = typeof (zoomVal as any) === "object" ? (zoomVal as any).x : (zoomVal as number);
+      const zoomY = typeof (zoomVal as any) === "object" ? (zoomVal as any).y : (zoomVal as number);
+      const colWidth = zoomX * baseCellWidth;
+      const rowHeight = zoomY * baseCellHeight;
+
+      // Convert the vibration to pricePerUnit via PixelTranslator to guarantee a 1:1 screen aspect ratio
+      const translatedPPU = velocityToPricePerUnit(finalVibration, colWidth, rowHeight);
+
+      lockedScale = translatedPPU;
       lockedUpperBoundary = visibleMaxPrice;
       lockedLowerBoundary = visibleMinPrice;
 

@@ -10,3 +10,4 @@ export * from "./HistoricSeedEngine";
 export * from "./GenesisVisualizerModule";
 export * from "./OctaveMultiplier";
 export * from "./ViewportScalerModule";
+export * from "./PixelTranslator";
