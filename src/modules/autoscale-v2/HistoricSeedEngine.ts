@@ -67,19 +67,29 @@ export interface SeedValidationResult {
   matches: SeedValidationMatch[];
 }
 
-export interface GenesisExtractionResult {
+export interface GenesisVibration {
   atlNode: GenesisNode;
   athNode: GenesisNode;
-  bullNodes: GenesisNode[]; // [L1, L2, L3]
-  bearNodes: GenesisNode[]; // [H1, H2, H3]
-  allBullNodes: GenesisNode[]; // [ATL, L1, L2, L3]
-  allBearNodes: GenesisNode[]; // [ATH, H1, H2, H3]
+  bullNodes: GenesisNode[]; // Only real confirmed market swing nodes (no hallucinations)
+  bearNodes: GenesisNode[]; // Only real confirmed market swing nodes (no hallucinations)
+  allBullNodes: GenesisNode[]; // [ATL, ...bullNodes]
+  allBearNodes: GenesisNode[]; // [ATH, ...bearNodes]
+  l1?: GenesisNode;
+  l2?: GenesisNode;
+  l3?: GenesisNode;
+  h1?: GenesisNode;
+  h2?: GenesisNode;
+  h3?: GenesisNode;
   bullProof: SeedValidationResult;
   bearProof: SeedValidationResult;
   ruleOf8BullGrid: { fraction: string; price: number }[];
   bullGenesisVelocity: number;
   bearGenesisVelocity: number;
+  bullTier: number; // Tier 3: Mature (L3), Tier 2: Developing (L2), Tier 1: Immature (L1), Tier 0: IPO/Day 1 (ATL/8)
+  bearTier: number; // Tier 3: Mature (H3), Tier 2: Developing (H2), Tier 1: Immature (H1), Tier 0: IPO/Day 1 (ATH/8)
 }
+
+export type GenesisExtractionResult = GenesisVibration;
 
 export interface DualGenesisResult {
   atl: HistoricExtremeNode;
@@ -281,11 +291,19 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
       bearNodes: [],
       allBullNodes: [dummyNode],
       allBearNodes: [{ ...dummyNode, label: "ATH", type: "HH" }],
+      l1: undefined,
+      l2: undefined,
+      l3: undefined,
+      h1: undefined,
+      h2: undefined,
+      h3: undefined,
       bullProof: { seedPrice: 100, tolerance: 0.01, isValid: false, matchRatio: 0, matches: [] },
       bearProof: { seedPrice: 100, tolerance: 0.01, isValid: false, matchRatio: 0, matches: [] },
       ruleOf8BullGrid: [],
       bullGenesisVelocity: 1.0,
       bearGenesisVelocity: 1.0,
+      bullTier: 0,
+      bearTier: 0,
     };
   }
 
@@ -369,36 +387,6 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
     });
   }
 
-  // Vulnerability B Remediation: IPO / Short Dataset Fallback for Bull Nodes
-  if (bullNodes.length < 3) {
-    const remainingCount = 3 - bullNodes.length;
-    const baseCol = bullNodes.length > 0 ? bullNodes[bullNodes.length - 1].col : atlNode.col;
-    const basePrice = bullNodes.length > 0 ? bullNodes[bullNodes.length - 1].price : atlNode.price;
-    const colStep = 4; // Standard minor octave column step
-    const priceStep = Math.max(1, (athNode.price - atlNode.price) / 16);
-
-    for (let k = 0; k < remainingCount; k++) {
-      const idx = bullNodes.length;
-      const synthCol = baseCol + (k + 1) * colStep;
-      const synthPrice = basePrice + (k + 1) * priceStep;
-      const deltaT = Math.max(1, synthCol - atlNode.col);
-      const priceDelta = Math.abs(synthPrice - atlNode.price);
-
-      bullNodes.push({
-        col: synthCol,
-        price: Math.round(synthPrice * 100) / 100,
-        type: "LL",
-        label: bullLabels[idx],
-        date: `Synthetic-${bullLabels[idx]}`,
-        indexInDataset: fullDataset.length - 1,
-        deltaTFromAnchor: deltaT,
-        priceDeltaFromAnchor: priceDelta,
-        velocityFromAnchor: priceDelta / deltaT,
-        isSynthesizedFallback: true,
-      });
-    }
-  }
-
   // 3. BEAR SEED: Slice from ATH forward. Run detectGannSwings(..., 3).
   // Extract first 3 subsequent Lower Highs (HH nodes with prices < ATH).
   const bearSlice = fullDataset.slice(athIdx);
@@ -425,52 +413,73 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
     });
   }
 
-  // Vulnerability B Remediation: IPO / Short Dataset Fallback for Bear Nodes
-  if (bearNodes.length < 3) {
-    const remainingCount = 3 - bearNodes.length;
-    const baseCol = bearNodes.length > 0 ? bearNodes[bearNodes.length - 1].col : athNode.col;
-    const basePrice = bearNodes.length > 0 ? bearNodes[bearNodes.length - 1].price : athNode.price;
-    const colStep = 4;
-    const priceStep = Math.max(1, (athNode.price - atlNode.price) / 16);
+  // 4. DYNAMIC BULL VELOCITY SWITCH (IMMATURE DATASET TIERING)
+  let bullGenesisVelocity: number;
+  let bullTier: number;
 
-    for (let k = 0; k < remainingCount; k++) {
-      const idx = bearNodes.length;
-      const synthCol = baseCol + (k + 1) * colStep;
-      const synthPrice = Math.max(1, basePrice - (k + 1) * priceStep);
-      const deltaT = Math.max(1, synthCol - athNode.col);
-      const priceDelta = Math.abs(athNode.price - synthPrice);
-
-      bearNodes.push({
-        col: synthCol,
-        price: Math.round(synthPrice * 100) / 100,
-        type: "HH",
-        label: bearLabels[idx],
-        date: `Synthetic-${bearLabels[idx]}`,
-        indexInDataset: fullDataset.length - 1,
-        deltaTFromAnchor: deltaT,
-        priceDeltaFromAnchor: priceDelta,
-        velocityFromAnchor: priceDelta / deltaT,
-        isSynthesizedFallback: true,
-      });
-    }
+  if (bullNodes.length >= 3) {
+    // Tier 3 (Mature): calculate using bullNodes[2] (L3)
+    bullTier = 3;
+    const l3 = bullNodes[2];
+    const safeL3Col = Number.isFinite(l3.col) && l3.col < 10000000 ? l3.col : (safeAtlCol + 3);
+    const deltaT = Math.max(1, safeL3Col - safeAtlCol);
+    bullGenesisVelocity = Math.max(0.0001, Math.abs(l3.price - atlNode.price) / deltaT);
+  } else if (bullNodes.length === 2) {
+    // Tier 2 (Developing): calculate using bullNodes[1] (L2)
+    bullTier = 2;
+    const l2 = bullNodes[1];
+    const safeL2Col = Number.isFinite(l2.col) && l2.col < 10000000 ? l2.col : (safeAtlCol + 2);
+    const deltaT = Math.max(1, safeL2Col - safeAtlCol);
+    bullGenesisVelocity = Math.max(0.0001, Math.abs(l2.price - atlNode.price) / deltaT);
+  } else if (bullNodes.length === 1) {
+    // Tier 1 (Immature): calculate using bullNodes[0] (L1)
+    bullTier = 1;
+    const l1 = bullNodes[0];
+    const safeL1Col = Number.isFinite(l1.col) && l1.col < 10000000 ? l1.col : (safeAtlCol + 1);
+    const deltaT = Math.max(1, safeL1Col - safeAtlCol);
+    bullGenesisVelocity = Math.max(0.0001, Math.abs(l1.price - atlNode.price) / deltaT);
+  } else {
+    // Tier 0 (IPO / Day 1): fallback to atlNode.price / 8
+    bullTier = 0;
+    bullGenesisVelocity = Math.max(0.0001, atlNode.price / 8);
   }
 
-  // 4. Calculate Genesis Velocities strictly using discrete column deltas
-  const l3 = bullNodes[2];
-  const h3 = bearNodes[2];
-  const safeL3Col = Number.isFinite(l3.col) && l3.col < 10000000 ? l3.col : (safeAtlCol + 3);
-  const safeH3Col = Number.isFinite(h3.col) && h3.col < 10000000 ? h3.col : (safeAthCol + 3);
-  const bullDeltaT = Math.max(1, safeL3Col - safeAtlCol);
-  const bearDeltaT = Math.max(1, safeH3Col - safeAthCol);
+  // 5. DYNAMIC BEAR VELOCITY SWITCH (IMMATURE DATASET TIERING)
+  let bearGenesisVelocity: number;
+  let bearTier: number;
 
-  const bullGenesisVelocity = Math.max(0.0001, Math.abs(l3.price - atlNode.price) / bullDeltaT);
-  const bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h3.price) / bearDeltaT);
+  if (bearNodes.length >= 3) {
+    // Tier 3 (Mature): calculate using bearNodes[2] (H3)
+    bearTier = 3;
+    const h3 = bearNodes[2];
+    const safeH3Col = Number.isFinite(h3.col) && h3.col < 10000000 ? h3.col : (safeAthCol + 3);
+    const deltaT = Math.max(1, safeH3Col - safeAthCol);
+    bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h3.price) / deltaT);
+  } else if (bearNodes.length === 2) {
+    // Tier 2 (Developing): calculate using bearNodes[1] (H2)
+    bearTier = 2;
+    const h2 = bearNodes[1];
+    const safeH2Col = Number.isFinite(h2.col) && h2.col < 10000000 ? h2.col : (safeAthCol + 2);
+    const deltaT = Math.max(1, safeH2Col - safeAthCol);
+    bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h2.price) / deltaT);
+  } else if (bearNodes.length === 1) {
+    // Tier 1 (Immature): calculate using bearNodes[0] (H1)
+    bearTier = 1;
+    const h1 = bearNodes[0];
+    const safeH1Col = Number.isFinite(h1.col) && h1.col < 10000000 ? h1.col : (safeAthCol + 1);
+    const deltaT = Math.max(1, safeH1Col - safeAthCol);
+    bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h1.price) / deltaT);
+  } else {
+    // Tier 0 (IPO / Day 1): fallback to athNode.price / 8
+    bearTier = 0;
+    bearGenesisVelocity = Math.max(0.0001, athNode.price / 8);
+  }
 
-  // 5. Proof of the Seed validation
+  // 6. Proof of the Seed validation
   const bullProof = validateSeed(atlNode.price, bullNodes, 0.01);
   const bearProof = validateSeed(athNode.price, bearNodes, 0.01);
 
-  // 6. Rule of 8 Grid Levels for ATL: 1/8th, 1/4 (2/8), 3/8 price levels
+  // 7. Rule of 8 Grid Levels for ATL: 1/8th, 1/4 (2/8), 3/8 price levels
   const atlEighth = atlNode.price / 8;
   const ruleOf8BullGrid = [
     { fraction: "ATL + 1/8", price: Math.round((atlNode.price + 1 * atlEighth) * 100) / 100 },
@@ -486,13 +495,26 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
     bearNodes,
     allBullNodes: [atlNode, ...bullNodes],
     allBearNodes: [athNode, ...bearNodes],
+    l1: bullNodes.length >= 1 ? bullNodes[0] : undefined,
+    l2: bullNodes.length >= 2 ? bullNodes[1] : undefined,
+    l3: bullNodes.length >= 3 ? bullNodes[2] : undefined,
+    h1: bearNodes.length >= 1 ? bearNodes[0] : undefined,
+    h2: bearNodes.length >= 2 ? bearNodes[1] : undefined,
+    h3: bearNodes.length >= 3 ? bearNodes[2] : undefined,
     bullProof,
     bearProof,
     ruleOf8BullGrid,
     bullGenesisVelocity: Math.round(bullGenesisVelocity * 10000) / 10000,
     bearGenesisVelocity: Math.round(bearGenesisVelocity * 10000) / 10000,
+    bullTier,
+    bearTier,
   };
 }
+
+/**
+ * Direct alias for extractGenesisNodes, extracting the GenesisVibration record with strict null extraction.
+ */
+export const calculateGenesisVibration = extractGenesisNodes;
 
 /**
  * Extracts Dual Historic Extreme Nodes (ATL & ATH) with indices, columns, and prices,

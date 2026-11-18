@@ -186,8 +186,8 @@ function registerGenesisOverlay(bridge: IGridBridge): () => void {
     ctx.fillStyle = "#37474F";
     const bullStatus = genesis.bullProof.isValid ? "✓ PASS (1% 8th)" : "△ FRACT";
     const bearStatus = genesis.bearProof.isValid ? "✓ PASS (1% 8th)" : "△ FRACT";
-    ctx.fillText(`Bull Seed (${genesis.atlNode.price}): ${bullStatus}`, hudX + 8, hudY + 20);
-    ctx.fillText(`Bear Seed (${genesis.athNode.price}): ${bearStatus}`, hudX + 8, hudY + 34);
+    ctx.fillText(`Bull Seed (${genesis.atlNode.price}): ${bullStatus} [T${genesis.bullTier}]`, hudX + 8, hudY + 20);
+    ctx.fillText(`Bear Seed (${genesis.athNode.price}): ${bearStatus} [T${genesis.bearTier}]`, hudX + 8, hudY + 34);
 
     ctx.restore();
 
