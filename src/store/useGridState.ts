@@ -3,6 +3,16 @@ import { Point2D, GridCoord, SwingPoint, CandleData, ChartDisplayMode } from "..
 import { identifyCandlestickPatterns } from "../utils/candlestickPatterns";
 import { verifyKeEAspectRatio, SentinelAuditResult } from "../utils/ratioSentinel";
 
+// Hysteresis Cache Reset: Purge any persisted grid-state-storage from localStorage on reload
+if (typeof window !== "undefined") {
+  try {
+    localStorage.removeItem("grid-state-storage");
+    localStorage.removeItem("gann-grid-state");
+  } catch {
+    // Ignore storage access errors
+  }
+}
+
 // Generates rich sample multi-session data with classic Japanese candlestick patterns & swing pivots
 function generateSampleCandleDataset(basePrice = 21500, pricePerUnit = 25.0): {
   candles: CandleData[];
@@ -154,6 +164,7 @@ export interface GridState {
   setSwingPoints: (points: SwingPoint[]) => void;
   clearAllData: () => void;
   loadSampleDataset: () => void;
+  resetScale: () => void;
 
   // Pure Geometric Calculations
   screenToWorld: (screenX: number, screenY: number) => Point2D;
@@ -456,6 +467,15 @@ export const useGridState = create<GridState>((set, get) => ({
     const fresh = generateSampleCandleDataset(get().basePrice, get().pricePerUnit);
     const count = fresh.candles.filter((c) => c.pattern).length;
     set({ candles: fresh.candles, swingPoints: fresh.swings, patternCount: count });
+  },
+
+  resetScale: () => {
+    const candles = get().candles;
+    if (candles && candles.length > 0) {
+      get().calibratePriceScale(candles);
+    } else {
+      set({ pricePerUnit: 25.0, basePrice: 21500 });
+    }
   },
 
   // Conversion: Screen -> World

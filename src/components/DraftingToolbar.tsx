@@ -521,6 +521,28 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           </button>
         )}
 
+        <button
+          onClick={() => {
+            try {
+              localStorage.removeItem("grid-state-storage");
+              localStorage.removeItem("gann-grid-state");
+            } catch {
+              // ignore
+            }
+            useGridState.getState().resetScale();
+          }}
+          style={{
+            ...buttonStyle,
+            backgroundColor: "#FFEBEE",
+            borderColor: "#E57373",
+            color: "#C62828",
+            fontWeight: "bold",
+          }}
+          title="Purge scale cache and reset Viewport scale"
+        >
+          🧹 Reset Scale
+        </button>
+
         {parseNotice && (
           <span
             style={{

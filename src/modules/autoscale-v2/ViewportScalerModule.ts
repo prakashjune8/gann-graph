@@ -85,6 +85,17 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
   gapLockActive = isGapDetected;
 
   // =========================================================================
+  // CORRUPTED STATE GUARD:
+  // Instantly dump runaway or leaked scale locks (> 100,000) and force fresh calculation
+  // =========================================================================
+  if (lockedScale && lockedScale > 100000) {
+    lockedScale = null;
+    lockedUpperBoundary = 0;
+    lockedLowerBoundary = 0;
+    lockedMultiplier = null;
+  }
+
+  // =========================================================================
   // 2. BOUNDARY DEADBAND CHECK (3% STANDARD vs. 10% GAP LOCK OVERRIDE)
   // =========================================================================
   if (lockedScale !== null && lockedUpperBoundary > 0 && lockedLowerBoundary > 0) {
