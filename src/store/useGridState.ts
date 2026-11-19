@@ -142,12 +142,6 @@ export interface GridState {
   visibleHighestPrice: number;// Active-window visible high
   visibleLowestPrice: number; // Active-window visible low (>= 0)
 
-  // Auto-Follow Price State (Dynamic vertical centering & scale adaptation)
-  autoFollowPrice: boolean;
-  setAutoFollowPrice: (enabled: boolean) => void;
-  toggleAutoFollowPrice: () => void;
-  fitVisibleCandlesY: (targetPanX?: number) => void;
-
   // Actions
   setPan: (pan: Point2D) => void;
   panBy: (deltaX: number, deltaY: number) => void;
@@ -260,165 +254,6 @@ export const useGridState = create<GridState>((set, get) => ({
   visibleHighestPrice: 22520,
   visibleLowestPrice: 21380,
 
-  autoFollowPrice: true,
-
-  setAutoFollowPrice: (enabled: boolean) => {
-    set({ autoFollowPrice: enabled });
-    if (enabled) {
-      get().fitVisibleCandlesY();
-    }
-  },
-
-  toggleAutoFollowPrice: () => {
-    const nextVal = !get().autoFollowPrice;
-    set({ autoFollowPrice: nextVal });
-    if (nextVal) {
-      get().fitVisibleCandlesY();
-    }
-  },
-
-  fitVisibleCandlesY: (targetPanX?: number) => {
-    const state = get();
-    const candles = state.candles;
-    if (!candles || candles.length === 0) return;
-
-    const currentPanX = targetPanX !== undefined ? targetPanX : state.pan.x;
-    const baseUnit = state.baseUnit || 12;
-    const zoom = state.zoom || 1.0;
-    const canvasW = state.screenWidth || (typeof window !== "undefined" ? window.innerWidth : 1440);
-    const canvasH = state.screenHeight || (typeof window !== "undefined" ? window.innerHeight : 900);
-
-    const leftOffset = state.showLeftAxis ? 84 : 0;
-    const rightOffset = state.showRightAxis ? 88 : 0;
-    const topOffset = state.showTopAxis ? 30 : 0;
-    const bottomOffset = state.showBottomAxis ? 32 : 0;
-
-    // 1. Measure Visible-Window Column Bounds Dynamically
-    const visibleLeftCol = (-currentPanX + leftOffset) / (baseUnit * zoom);
-    const visibleRightCol = (-currentPanX + canvasW - rightOffset) / (baseUnit * zoom);
-    const minVisCol = Math.min(visibleLeftCol, visibleRightCol);
-    const maxVisCol = Math.max(visibleLeftCol, visibleRightCol);
-
-    // 2. Binary search visible candle slice (O(log N))
-    let low = 0;
-    let high = candles.length - 1;
-    let firstIdx = -1;
-
-    while (low <= high) {
-      const mid = (low + high) >> 1;
-      if (candles[mid].gridCol >= minVisCol) {
-        firstIdx = mid;
-        high = mid - 1;
-      } else {
-        low = mid + 1;
-      }
-    }
-
-    low = 0;
-    high = candles.length - 1;
-    let lastIdx = -1;
-
-    while (low <= high) {
-      const mid = (low + high) >> 1;
-      if (candles[mid].gridCol <= maxVisCol) {
-        lastIdx = mid;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-
-    let activeCandles: CandleData[] = [];
-    if (firstIdx !== -1 && lastIdx !== -1 && firstIdx <= lastIdx) {
-      const startIdx = Math.max(0, firstIdx - 2);
-      const endIdx = Math.min(candles.length, lastIdx + 3);
-      activeCandles = candles.slice(startIdx, endIdx);
-    } else {
-      if (lastIdx < 0) {
-        activeCandles = [candles[0]];
-      } else if (firstIdx >= candles.length || firstIdx < 0) {
-        activeCandles = [candles[candles.length - 1]];
-      } else {
-        const midCol = (minVisCol + maxVisCol) / 2;
-        let closestCandle = candles[0];
-        let minDiff = Math.abs(candles[0].gridCol - midCol);
-        for (let i = 1; i < candles.length; i++) {
-          const diff = Math.abs(candles[i].gridCol - midCol);
-          if (diff < minDiff) {
-            minDiff = diff;
-            closestCandle = candles[i];
-          }
-        }
-        activeCandles = [closestCandle];
-      }
-    }
-
-    // 3. Compute localMinLow and localMaxHigh strictly from visible candles (ignoring zero/NaN)
-    let localMaxHigh = -Infinity;
-    let localMinLow = Infinity;
-    for (let i = 0; i < activeCandles.length; i++) {
-      const c = activeCandles[i];
-      if (Number.isFinite(c.high) && c.high > 0 && c.high > localMaxHigh) localMaxHigh = c.high;
-      if (Number.isFinite(c.low) && c.low > 0 && c.low < localMinLow) localMinLow = c.low;
-    }
-
-    if (!Number.isFinite(localMaxHigh) || !Number.isFinite(localMinLow) || localMaxHigh <= 0) {
-      return;
-    }
-
-    // 4. Dynamic Slice Price Scaling: (localMaxHigh * 1.10 minus localMinLow) relative to visible canvas pixel height
-    const localCeiling = Math.round(localMaxHigh * 1.10 * 100) / 100;
-    const priceSpan = Math.max(1, localCeiling - localMinLow);
-
-    const availableH = Math.max(100, canvasH - topOffset - bottomOffset);
-    // Grid squares in available pixel height on unzoomed paper (zoom-independent)
-    const numGridSquares = availableH / baseUnit;
-    const rawIdealScale = priceSpan / numGridSquares;
-
-    // Harmonic scale values (Gann expansion)
-    const harmonics = [
-      0.01, 0.02, 0.025, 0.05,
-      0.1, 0.125, 0.2, 0.25, 0.333, 0.375, 0.5, 0.666, 0.75, 0.875,
-      1, 1.25, 1.5, 2, 2.5, 3.333, 3.75, 5, 6.666, 7.5, 8.75,
-      10, 12.5, 15, 20, 25, 33.33, 37.5, 50, 66.66, 75, 87.5,
-      100, 125, 150, 200, 250, 333.3, 375, 500, 666.6, 750, 875, 1000,
-      1250, 1500, 2000, 2500, 3333, 3750, 5000, 10000,
-    ];
-
-    let safeScale = harmonics[0];
-    let minDiff = Math.abs(rawIdealScale - harmonics[0]);
-    for (let i = 1; i < harmonics.length; i++) {
-      const diff = Math.abs(rawIdealScale - harmonics[i]);
-      if (diff < minDiff) {
-        minDiff = diff;
-        safeScale = harmonics[i];
-      }
-    }
-    safeScale = Math.min(10000, Math.max(0.01, safeScale));
-
-    // Anchor basePrice cleanly to major 1-inch block below localMinLow
-    const harmonicBlock = safeScale * 8;
-    const calculatedBasePrice = Math.max(0, Math.floor(localMinLow / harmonicBlock) * harmonicBlock);
-
-    // 5. Keep Price & Candles Centered in the Viewing Area: midpoint of visible slice stays centered
-    const centerPrice = (localCeiling + localMinLow) / 2;
-    const centerY = (canvasH + topOffset - bottomOffset) / 2;
-    const centerWorldY = ((centerPrice - calculatedBasePrice) / safeScale) * baseUnit;
-    const targetPanY = Math.round(centerY + centerWorldY * zoom);
-
-    set({
-      pricePerUnit: safeScale,
-      basePrice: calculatedBasePrice,
-      pan: {
-        x: Math.round(currentPanX),
-        y: targetPanY,
-      },
-      visibleHighestPrice: localMaxHigh,
-      visibleLowestPrice: localMinLow,
-      priceCeiling: localCeiling,
-    });
-  },
-
   setPan: (pan) =>
     set({
       pan: {
@@ -427,23 +262,13 @@ export const useGridState = create<GridState>((set, get) => ({
       },
     }),
 
-  panBy: (deltaX, deltaY) => {
-    const { autoFollowPrice, fitVisibleCandlesY, pan } = get();
-    if (autoFollowPrice && deltaX !== 0 && deltaY === 0) {
-      // Pure horizontal movement (e.g. arrow keys, horizontal wheel)
-      fitVisibleCandlesY(pan.x + deltaX);
-    } else if (autoFollowPrice && deltaX !== 0 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
-      // Predominantly horizontal mouse dragging
-      fitVisibleCandlesY(pan.x + deltaX);
-    } else {
-      set((state) => ({
-        pan: {
-          x: Math.round(state.pan.x + deltaX),
-          y: Math.round(state.pan.y + deltaY),
-        },
-      }));
-    }
-  },
+  panBy: (deltaX, deltaY) =>
+    set((state) => ({
+      pan: {
+        x: Math.round(state.pan.x + deltaX),
+        y: Math.round(state.pan.y + deltaY),
+      },
+    })),
 
   // Strictly isotropic cursor-centered zoom: X and Y scale by identical factor with safety bounds
   zoomAt: (screenX, screenY, zoomFactorDelta) => {
@@ -506,11 +331,6 @@ export const useGridState = create<GridState>((set, get) => ({
 
     const latestWorldX = maxCol * baseUnit;
     const targetPanX = viewportWidth - futureBuffer - latestWorldX * zoom;
-
-    if (get().autoFollowPrice) {
-      get().fitVisibleCandlesY(targetPanX);
-      return;
-    }
 
     let targetPanY = get().pan.y;
     if (latestCandle) {

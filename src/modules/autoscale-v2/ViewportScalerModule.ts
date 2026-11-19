@@ -17,7 +17,7 @@ import { extractGenesisNodes } from "./HistoricSeedEngine";
 import { getExpandedVibration } from "./OctaveMultiplier";
 import { velocityToPricePerUnit } from "./PixelTranslator";
 
-let isScalerActive = false;
+let isScalerActive = true;
 let lockedScale: number | null = null;
 let lockedMultiplier: number | null = null;
 let lockedUpperBoundary = 0;
@@ -193,18 +193,13 @@ function registerScalerHooks(bridge: IGridBridge): () => void {
     }
   });
 
-  // Hook 2: State change listener to catch pan adjustments (Zoom is strictly 1:1 isotropic and NEVER modifies pricePerUnit)
+  // Hook 2: State change listener to catch pan/zoom adjustments
   const unsub = bridge.subscribe((state, prevState) => {
     if (!isScalerActive) return;
-    // Zoom must NEVER change pricePerUnit or flatten the display
-    if (state.zoom !== prevState.zoom) return;
-    // When autoFollowPrice is true, fitVisibleCandlesY handles vertical centering and dynamic slice scaling
-    if (state.autoFollowPrice && (state.pan.x !== prevState.pan.x || state.pan.y !== prevState.pan.y)) {
-      return;
-    }
     if (
       state.pan.x !== prevState.pan.x ||
-      state.pan.y !== prevState.pan.y
+      state.pan.y !== prevState.pan.y ||
+      state.zoom !== prevState.zoom
     ) {
       evaluateViewportScale(bridge, state.screenHeight || 600);
     }
@@ -244,7 +239,7 @@ export const ViewportScalerModule: GannModule = {
     },
   ],
   initialize: (bridge: IGridBridge) => {
-    isScalerActive = false;
+    isScalerActive = true;
     lockedScale = null;
     lockedMultiplier = null;
     lockedUpperBoundary = 0;
@@ -255,6 +250,9 @@ export const ViewportScalerModule: GannModule = {
       unregisterOverlayFn();
     }
     unregisterOverlayFn = registerScalerHooks(bridge);
+
+    // Initial evaluation
+    evaluateViewportScale(bridge, 600);
   },
   destroy: () => {
     isScalerActive = false;

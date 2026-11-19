@@ -43,8 +43,6 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const toggleAxisTransparency = useGridState((s) => s.toggleAxisTransparency);
   const toggleCrosshair = useGridState((s) => s.toggleCrosshair);
   const clearAllData = useGridState((s) => s.clearAllData);
-  const autoFollowPrice = useGridState((s) => s.autoFollowPrice);
-  const toggleAutoFollowPrice = useGridState((s) => s.toggleAutoFollowPrice);
   const hasCandles = useGridState((s) => s.candles.length > 0);
   const basePrice = useGridState((s) => s.basePrice);
   const pricePerUnit = useGridState((s) => s.pricePerUnit);
@@ -566,19 +564,6 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           title="Jump to Latest (Auto-Center with Future Space Buffer)"
         >
           ▶ Latest
-        </button>
-        <button
-          onClick={toggleAutoFollowPrice}
-          style={{
-            ...buttonStyle,
-            backgroundColor: autoFollowPrice ? "#E8F5E9" : "transparent",
-            borderColor: autoFollowPrice ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
-            color: autoFollowPrice ? "#1B5E20" : "#555",
-            fontWeight: autoFollowPrice ? "bold" : "normal",
-          }}
-          title="Toggle Auto-Follow Price (Dynamically scales and centers price range to eliminate flatlines and drift)"
-        >
-          {autoFollowPrice ? "🎯 Auto-Fit Y: ON" : "🎯 Auto-Fit Y: OFF"}
         </button>
       </div>
 
