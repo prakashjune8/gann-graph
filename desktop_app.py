@@ -3,6 +3,18 @@ import sys
 import webview
 from webview import settings as webview_settings
 
+# Ensure src/modules/data-injection is on Python sys.path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_INJECTION_DIR = os.path.join(BASE_DIR, "src", "modules", "data-injection")
+if DATA_INJECTION_DIR not in sys.path:
+    sys.path.insert(0, DATA_INJECTION_DIR)
+
+try:
+    import vault_manager
+except Exception as e:
+    vault_manager = None
+    print(f"[DESKTOP-APP] Warning: vault_manager could not be loaded: {e}", flush=True)
+
 # PRE-FLIGHT PATCH 3: CHROMIUM GPU HARDWARE ACCELERATION
 # Eradicate PyWebView2 software rendering fallback across all Windows environments
 webview_settings["ALLOW_FILE_URLS"] = True
@@ -39,6 +51,95 @@ try:
 except Exception:
     pass
 
+
+class VaultJsApi:
+    """
+    Bridge API exposed to the React/TypeScript frontend via window.pywebview.api.
+    Provides native Windows directory/file dialogs and executes vault management commands.
+    """
+    def __init__(self):
+        self._window = None
+
+    def set_window(self, window):
+        self._window = window
+
+    def check_vault_status(self):
+        if vault_manager:
+            return vault_manager.check_vault_status()
+        return {
+            "status": "ERROR",
+            "isHealthy": False,
+            "message": "Vault management engine is not available.",
+        }
+
+    def select_folder(self, prompt="Select Folder"):
+        if not self._window:
+            return None
+        res = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        if res and len(res) > 0:
+            return res[0]
+        return None
+
+    def select_file(self, prompt="Select File"):
+        if not self._window:
+            return None
+        file_types = (
+            'Backup Files (*.zip;*.duckdb;*.db)',
+            'ZIP Archives (*.zip)',
+            'DuckDB Databases (*.duckdb;*.db)',
+            'All Files (*.*)'
+        )
+        res = self._window.create_file_dialog(
+            webview.OPEN_FILENAME_DIALOG,
+            allow_multiple=False,
+            file_types=file_types
+        )
+        if res and len(res) > 0:
+            return res[0]
+        return None
+
+    def export_full_vault(self, target_dir=None):
+        if not vault_manager:
+            return {"success": False, "message": "Vault manager backend is offline."}
+        if not target_dir:
+            target_dir = self.select_folder("Select Destination Drive or Folder for Full Vault Backup")
+            if not target_dir:
+                return {"success": False, "cancelled": True, "message": "Export cancelled: No destination folder selected."}
+        return vault_manager.export_full_vault(target_dir)
+
+    def export_mail_bundle(self, target_dir=None):
+        if not vault_manager:
+            return {"success": False, "message": "Vault manager backend is offline."}
+        if not target_dir:
+            target_dir = self.select_folder("Select Destination Folder for Compressed Mail Bundle")
+            if not target_dir:
+                return {"success": False, "cancelled": True, "message": "Export cancelled: No destination folder selected."}
+        return vault_manager.export_mail_bundle(target_dir)
+
+    def restore_vault(self, source_path=None):
+        if not vault_manager:
+            return {"success": False, "message": "Vault manager backend is offline."}
+        if not source_path:
+            source_path = self.select_file("Select Backup ZIP Bundle or Database File")
+            if not source_path:
+                return {"success": False, "cancelled": True, "message": "Restore cancelled: No backup file selected."}
+        return vault_manager.restore_vault(source_path)
+
+    def restore_vault_from_folder(self, folder_path=None):
+        if not vault_manager:
+            return {"success": False, "message": "Vault manager backend is offline."}
+        if not folder_path:
+            folder_path = self.select_folder("Select Backup Folder (e.g. from Pendrive / External HDD)")
+            if not folder_path:
+                return {"success": False, "cancelled": True, "message": "Restore cancelled: No backup folder selected."}
+        return vault_manager.restore_vault(folder_path)
+
+    def initialize_fresh_vault(self):
+        if not vault_manager:
+            return {"success": False, "message": "Vault manager backend is offline."}
+        return vault_manager.initialize_fresh_vault()
+
+
 def get_entry_url():
     """
     Locates the compiled React/TypeScript frontend (dist/index.html)
@@ -65,8 +166,10 @@ def get_entry_url():
     abs_path = os.path.abspath(dist_index).replace("\\", "/")
     return f"file:///{abs_path}"
 
+
 def main():
     entry_url = get_entry_url()
+    vault_api = VaultJsApi()
     window = webview.create_window(
         title="W.D. Gann Digital Drafting Desk — K&E 8x8 Fixed Coordinate Studio",
         url=entry_url,
@@ -75,8 +178,11 @@ def main():
         min_size=(1024, 700),
         resizable=True,
         fullscreen=False,
+        js_api=vault_api,
     )
+    vault_api.set_window(window)
     webview.start(gui="edgechromium")
+
 
 if __name__ == "__main__":
     main()

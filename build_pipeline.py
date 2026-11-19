@@ -145,6 +145,9 @@ def bundle_executable():
         f"--distpath={FINAL_OUTPUT_DIR}",
         f"--workpath={os.path.join(ROOT_DIR, 'build')}",
         f"--specpath={ROOT_DIR}",
+        f"--paths={os.path.join(ROOT_DIR, 'src', 'modules', 'data-injection')}",
+        "--hidden-import=vault_manager",
+        "--hidden-import=duckdb",
         "--add-data=dist;dist",
         os.path.join(ROOT_DIR, "desktop_app.py")
     ]

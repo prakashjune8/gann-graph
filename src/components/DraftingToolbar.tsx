@@ -9,11 +9,13 @@ import { GridBridge } from "../core-bridge/GridBridge";
 interface DraftingToolbarProps {
   showGannRay: boolean;
   setShowGannRay: (val: boolean) => void;
+  onOpenVaultBackup?: () => void;
 }
 
 export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   showGannRay,
   setShowGannRay,
+  onOpenVaultBackup,
 }) => {
   // Granular Isolated Zustand Selectors (DELTA-P0-02 Remediation)
   const zoomAt = useGridState((s) => s.zoomAt);
@@ -495,6 +497,22 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         >
           {isParsing ? "⏳ Loading Data..." : "📁 Ingest CSV"}
         </button>
+
+        {onOpenVaultBackup && (
+          <button
+            onClick={onOpenVaultBackup}
+            style={{
+              ...buttonStyle,
+              backgroundColor: "#E8F5E9",
+              borderColor: "#2E7D32",
+              color: "#1B5E20",
+              fontWeight: "bold",
+            }}
+            title="Open Market Data Vault Backup, Mail Bundler & Disaster Recovery Menu"
+          >
+            🛡️ Vault Backup
+          </button>
+        )}
 
         {!hasCandles ? (
           <button

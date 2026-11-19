@@ -3,10 +3,10 @@
 
 a = Analysis(
     ['D:\\ANTIGRAVITY PROJECT FOLDER\\GANN GRAPH\\desktop_app.py'],
-    pathex=[],
+    pathex=['D:\\ANTIGRAVITY PROJECT FOLDER\\GANN GRAPH\\src\\modules\\data-injection'],
     binaries=[],
     datas=[('dist', 'dist')],
-    hiddenimports=[],
+    hiddenimports=['vault_manager', 'duckdb'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
