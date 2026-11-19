@@ -29,6 +29,8 @@ export const WaterFlowViewport: React.FC = () => {
   const showBottomAxis = useGridState((s) => s.showBottomAxis);
   const priceCeiling = useGridState((s) => s.priceCeiling);
   const highestPrice = useGridState((s) => s.highestPrice);
+  const autoFollowPrice = useGridState((s) => s.autoFollowPrice);
+  const fitVisibleCandlesY = useGridState((s) => s.fitVisibleCandlesY);
   const setPan = useGridState((s) => s.setPan);
   const jumpToLatest = useGridState((s) => s.jumpToLatest);
 
@@ -107,9 +109,13 @@ export const WaterFlowViewport: React.FC = () => {
       if (!hasData) return;
       const targetCol = minCol + frac * totalColSpan;
       const targetPanX = Math.round(leftOffset + actualWidth / 2 - targetCol * baseUnit * zoom);
-      setPan({ x: targetPanX, y: pan.y });
+      if (autoFollowPrice) {
+        fitVisibleCandlesY(targetPanX);
+      } else {
+        setPan({ x: targetPanX, y: pan.y });
+      }
     },
-    [hasData, minCol, totalColSpan, screenWidth, leftOffset, actualWidth, baseUnit, zoom, setPan, pan.y]
+    [hasData, minCol, totalColSpan, leftOffset, actualWidth, baseUnit, zoom, autoFollowPrice, fitVisibleCandlesY, setPan, pan.y]
   );
 
   // Handle click on the river stream to jump
@@ -136,7 +142,11 @@ export const WaterFlowViewport: React.FC = () => {
       const deltaCol = deltaFrac * totalColSpan;
       const deltaWorldX = deltaCol * baseUnit * zoom;
       const newPanX = Math.round(initialPanXRef.current - deltaWorldX);
-      setPan({ x: newPanX, y: pan.y });
+      if (useGridState.getState().autoFollowPrice) {
+        useGridState.getState().fitVisibleCandlesY(newPanX);
+      } else {
+        setPan({ x: newPanX, y: pan.y });
+      }
     };
 
     const handleMouseUp = () => {

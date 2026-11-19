@@ -77,6 +77,10 @@ export interface IGridBridge {
   setChartMode(mode: ChartDisplayMode): void;
   setShowPatterns(show: boolean): void;
   setShowVolumeBars(show: boolean): void;
+  isAutoFollowPrice(): boolean;
+  setAutoFollowPrice(enabled: boolean): void;
+  toggleAutoFollowPrice(): void;
+  fitVisibleCandlesY(targetPanX?: number): void;
 
   // Data Pipeline Dispatchers
   setCandles(candles: CandleData[]): void;
@@ -243,6 +247,22 @@ class CoreGridBridge implements IGridBridge {
 
   setShowVolumeBars(show: boolean): void {
     useGridState.getState().setShowVolumeBars(show);
+  }
+
+  isAutoFollowPrice(): boolean {
+    return useGridState.getState().autoFollowPrice;
+  }
+
+  setAutoFollowPrice(enabled: boolean): void {
+    useGridState.getState().setAutoFollowPrice(enabled);
+  }
+
+  toggleAutoFollowPrice(): void {
+    useGridState.getState().toggleAutoFollowPrice();
+  }
+
+  fitVisibleCandlesY(targetPanX?: number): void {
+    useGridState.getState().fitVisibleCandlesY(targetPanX);
   }
 
   // Data Pipeline Dispatchers
