@@ -60,13 +60,29 @@ export interface DisplayDispatchResult {
   error?: string;
 }
 
+export interface AvailableSeriesInfo {
+  seriesId: string;
+  symbol: string;
+  exchange: string;
+  instrumentToken: number;
+  assetClass: string;
+  segment: string;
+  rowCount: number;
+  earliestDate: string;
+  latestDate: string;
+  expiry?: string | null;
+  strike?: number | null;
+}
+
 export interface DisplayCoordinatorState {
   activeSymbol: string;
   activeTimeframe: DisplayTimeframe;
+  availableSeries: AvailableSeriesInfo[];
   rawBars: RawMarketBar[];
   displayCandles: CandleData[];
   displaySwings: SwingPoint[];
   metadata: DisplaySeriesMetadata | null;
   isLoading: boolean;
   statusNotice: string | null;
+  isVaultActive: boolean;
 }

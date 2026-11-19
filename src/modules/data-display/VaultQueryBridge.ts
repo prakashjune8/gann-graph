@@ -6,7 +6,7 @@
  * to retrieve historical daily/intraday candlestick records for display.
  */
 
-import { RawMarketBar } from "./DisplayTypes";
+import { RawMarketBar, AvailableSeriesInfo } from "./DisplayTypes";
 
 export interface VaultQueryResult {
   success: boolean;
@@ -18,11 +18,60 @@ export interface VaultQueryResult {
   message: string;
 }
 
+export interface VaultSeriesListResult {
+  success: boolean;
+  series: AvailableSeriesInfo[];
+  totalCount: number;
+  message: string;
+}
+
 /**
  * Checks whether native PyWebView vault querying is active.
  */
 export function isNativeVaultQueryAvailable(): boolean {
   return typeof window !== "undefined" && typeof window.pywebview?.api?.query_vault_candles === "function";
+}
+
+/**
+ * Lists available distinct market series stored in the master DuckDB vault.
+ */
+export async function listVaultSeries(): Promise<VaultSeriesListResult> {
+  if (typeof window !== "undefined" && typeof window.pywebview?.api?.list_vault_series === "function") {
+    try {
+      const res = await window.pywebview.api.list_vault_series();
+      return res;
+    } catch (err) {
+      console.error("[VaultQueryBridge] Error listing series from native DuckDB vault:", err);
+      return {
+        success: false,
+        series: [],
+        totalCount: 0,
+        message: `Native DuckDB series listing error: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Pure Web Browser Mode Fallback (Simulated available vault series)
+  const fallbackSeries: AvailableSeriesInfo[] = [
+    {
+      seriesId: "NSE:NIFTY 50",
+      symbol: "NIFTY 50",
+      exchange: "NSE",
+      instrumentToken: 256265,
+      assetClass: "INDEX",
+      segment: "INDICES",
+      rowCount: 8844,
+      earliestDate: "1990-07-03",
+      latestDate: "2026-11-18",
+    },
+  ];
+
+  return {
+    success: true,
+    series: fallbackSeries,
+    totalCount: fallbackSeries.length,
+    message: "Retrieved fallback browser series descriptor.",
+  };
 }
 
 /**

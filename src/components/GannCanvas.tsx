@@ -624,7 +624,21 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // 5. Modular Overlay Extensions (Decoupled Plugin Architecture)
+    // 5. Lightweight Empty State Prompt (Active when vault is empty and no CSV is loaded)
+    if (candles.length === 0) {
+      ctx.save();
+      ctx.fillStyle = "rgba(74, 120, 102, 0.45)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "italic bold 14px 'Courier New', monospace";
+      ctx.fillText("K&E 8x8 Drafting Desk — No Market Series Loaded", width / 2, height / 2 - 10);
+      ctx.font = "11px 'Courier New', monospace";
+      ctx.fillStyle = "rgba(74, 120, 102, 0.65)";
+      ctx.fillText("Select a series from the toolbar or drop CSV files into D:\\GannMarketVault\\01_DROP_INBOX", width / 2, height / 2 + 14);
+      ctx.restore();
+    }
+
+    // 6. Modular Overlay Extensions (Decoupled Plugin Architecture)
     const overlays = GridBridge.getOverlays();
     if (overlays.size > 0) {
       overlays.forEach((renderer) => {

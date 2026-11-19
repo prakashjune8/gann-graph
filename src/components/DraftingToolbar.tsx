@@ -6,6 +6,7 @@ import { CsvWorkerResponse } from "../workers/csvWorker";
 import { useActiveModuleTools } from "../ModuleRegistry";
 import { GridBridge } from "../core-bridge/GridBridge";
 import { DataDisplayCoordinator } from "../modules/data-display/DataDisplayCoordinator";
+import { DisplayTimeframe } from "../modules/data-display/DisplayTypes";
 
 interface DraftingToolbarProps {
   showGannRay: boolean;
@@ -48,6 +49,12 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
 
   // Dynamic Modular Plugin Tools (Feature-Sliced Architecture)
   const moduleTools = useActiveModuleTools();
+
+  const [coordinatorState, setCoordinatorState] = useState(DataDisplayCoordinator.getState());
+
+  useEffect(() => {
+    return DataDisplayCoordinator.subscribe((s) => setCoordinatorState({ ...s }));
+  }, []);
 
   const [isParsing, setIsParsing] = useState(false);
   const [parseNotice, setParseNotice] = useState<string | null>(null);
@@ -240,6 +247,98 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           K&E 8x8 DRAFTING DESK
         </span>
       </div>
+
+      {/* Vault Instrument & Timeframe Multi-Series Selector */}
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <select
+          value={coordinatorState.activeSymbol}
+          onChange={async (e) => {
+            const sym = e.target.value;
+            if (sym) {
+              setIsParsing(true);
+              try {
+                await DataDisplayCoordinator.setSeries(sym);
+              } finally {
+                setIsParsing(false);
+              }
+            }
+          }}
+          style={{
+            padding: "4px 8px",
+            fontSize: "11px",
+            fontFamily: "'Courier New', Courier, monospace",
+            fontWeight: "bold",
+            backgroundColor: "#FFFFFF",
+            color: "#1B5E20",
+            border: "1px solid rgba(74, 120, 102, 0.60)",
+            borderRadius: 3,
+            cursor: "pointer",
+            outline: "none",
+          }}
+          title="Select active financial series from master DuckDB vault (NSE Index, MCX Energy, MCX Base Metals; Bullion excluded)"
+        >
+          {coordinatorState.availableSeries.length > 0 ? (
+            coordinatorState.availableSeries.map((s) => (
+              <option key={s.seriesId || s.symbol} value={s.symbol}>
+                📈 {s.symbol} [{s.exchange} • {s.assetClass}] ({s.rowCount.toLocaleString()} bars)
+              </option>
+            ))
+          ) : (
+            <option value="NIFTY 50">📈 NIFTY 50 [NSE • INDEX]</option>
+          )}
+        </select>
+
+        {/* Timeframe Buttons (1D, 1W, 1M) */}
+        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+          {(["1D", "1W", "1M"] as DisplayTimeframe[]).map((tf) => {
+            const isActive = coordinatorState.activeTimeframe === tf;
+            return (
+              <button
+                key={tf}
+                onClick={() => DataDisplayCoordinator.setTimeframe(tf)}
+                style={{
+                  ...buttonStyle,
+                  padding: "3px 6px",
+                  fontSize: "10px",
+                  backgroundColor: isActive ? "#1B5E20" : "#FFFFFF",
+                  color: isActive ? "#FFFFFF" : "#2C3E35",
+                  borderColor: isActive ? "#0D3311" : "rgba(74, 120, 102, 0.40)",
+                  fontWeight: isActive ? "bold" : "normal",
+                }}
+                title={`Aggregate active series to ${tf} timeframe`}
+              >
+                {tf}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Live Active Series Metadata Badge */}
+        {coordinatorState.metadata && (
+          <div
+            style={{
+              fontSize: "10px",
+              color: "#1B5E20",
+              backgroundColor: "#E8F5E9",
+              padding: "3px 7px",
+              borderRadius: 3,
+              border: "1px solid rgba(46, 125, 50, 0.30)",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              whiteSpace: "nowrap",
+            }}
+            title={`${coordinatorState.metadata.symbol} on ${coordinatorState.metadata.timeframe} timeframe (${coordinatorState.metadata.startDate} to ${coordinatorState.metadata.endDate})`}
+          >
+            <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", backgroundColor: "#2E7D32" }} />
+            <span>
+              <strong>{coordinatorState.metadata.symbol}</strong> ({coordinatorState.metadata.totalBars.toLocaleString()} bars)
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div style={dividerStyle} />
 
       {/* Mode Selector Buttons */}
       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -515,12 +614,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
             onClick={async () => {
               setIsParsing(true);
               try {
-                const res = await DataDisplayCoordinator.displayVaultSeries({ symbol: "NIFTY 50", timeframe: "1D" });
-                if (!res.success) {
-                  DataDisplayCoordinator.displaySampleSeries();
-                }
-              } catch {
-                DataDisplayCoordinator.displaySampleSeries();
+                await DataDisplayCoordinator.initializeStartupData();
               } finally {
                 setIsParsing(false);
               }
@@ -533,17 +627,22 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
               color: "#1967D2",
               fontWeight: "bold",
             }}
-            title="Load historical series from Market Vault (or sample fallback)"
+            title="Load active series from Master DuckDB Vault"
           >
-            {isParsing ? "Loading..." : "+ Load NIFTY 50"}
+            {isParsing ? "Loading..." : "🏛️ Reload Vault"}
           </button>
         ) : (
           <button
-            onClick={clearAllData}
+            onClick={() => {
+              clearAllData();
+              useGridState.getState().setCandles([]);
+              useGridState.getState().setSwingPoints([]);
+            }}
             style={{
               ...buttonStyle,
               color: "#C62828",
             }}
+            title="Clear active chart bars"
           >
             Clear Data
           </button>

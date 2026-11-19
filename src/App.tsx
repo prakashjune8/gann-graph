@@ -6,14 +6,13 @@ import { VaultBackupModal } from "./components/VaultBackupModal";
 import { MissingVaultModal } from "./components/MissingVaultModal";
 import { getVaultStatus, VaultStatus } from "./utils/vaultBridge";
 import { DataDisplayCoordinator } from "./modules/data-display";
-import { useGridState } from "./store/useGridState";
 
 export const App: React.FC = () => {
   const [showGannRay, setShowGannRay] = useState(true);
   const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
   const [missingVaultStatus, setMissingVaultStatus] = useState<VaultStatus | null>(null);
 
-  // Startup Check: Missing or Formatted Vault Detection & Guided Recovery
+  // Startup Check & Initial Vault Market Series Ingestion
   useEffect(() => {
     let isMounted = true;
     const checkStartupVaultHealth = async () => {
@@ -22,9 +21,14 @@ export const App: React.FC = () => {
         if (!isMounted) return;
         if (status.status === "MISSING_VAULT" || status.status === "MISSING_DB") {
           setMissingVaultStatus(status);
+        } else {
+          // Master Vault is healthy: Wire real vault data into graph immediately
+          await DataDisplayCoordinator.initializeStartupData();
         }
       } catch (err) {
         console.warn("[App] Initial vault status probe:", err);
+        // Fallback startup attempt
+        await DataDisplayCoordinator.initializeStartupData();
       }
     };
 
@@ -35,10 +39,8 @@ export const App: React.FC = () => {
   }, []);
 
   const handleVaultRestored = () => {
-    // When a vault is restored, automatically coordinate display of NIFTY 50 data
-    DataDisplayCoordinator.displayVaultSeries({ symbol: "NIFTY 50", timeframe: "1D" }).catch(() => {
-      useGridState.getState().loadSampleDataset();
-    });
+    // When a vault is restored, automatically coordinate display of the active vault series
+    DataDisplayCoordinator.initializeStartupData();
   };
 
   return (

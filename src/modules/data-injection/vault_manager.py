@@ -709,6 +709,118 @@ def query_vault_candles(
         }
 
 
+def list_vault_series(vault_root: Path = DEFAULT_VAULT_ROOT) -> Dict[str, Any]:
+    """
+    Scans the master DuckDB vault and returns distinct instruments/series
+    available for charting, strictly filtering out GOLD, SILVER, and BULLION.
+    """
+    root = Path(vault_root)
+    db_file = root / "04_VAULT_DB" / "gann_market_data.duckdb"
+
+    if not db_file.exists():
+        return {
+            "success": False,
+            "series": [],
+            "totalCount": 0,
+            "message": f"Vault database not found at {db_file}"
+        }
+
+    if duckdb is None:
+        return {
+            "success": False,
+            "series": [],
+            "totalCount": 0,
+            "message": "DuckDB driver not loaded in Python environment"
+        }
+
+    try:
+        conn = duckdb.connect(str(db_file), read_only=True)
+        tables = [t[0].lower() for t in conn.execute("SHOW TABLES").fetchall()]
+        if "market_data" not in tables:
+            conn.close()
+            return {
+                "success": False,
+                "series": [],
+                "totalCount": 0,
+                "message": "market_data table not found in vault database."
+            }
+
+        # Check if instruments_meta exists for optional metadata enrichment
+        has_meta = "instruments_meta" in tables
+
+        sql = """
+            SELECT 
+                symbol, 
+                exchange, 
+                instrument_token, 
+                asset_class, 
+                segment, 
+                count(*) as row_count,
+                min(timestamp) as earliest, 
+                max(timestamp) as latest
+            FROM market_data
+            WHERE UPPER(symbol) NOT LIKE '%GOLD%'
+              AND UPPER(symbol) NOT LIKE '%SILVER%'
+              AND UPPER(symbol) NOT LIKE '%BULLION%'
+            GROUP BY symbol, exchange, instrument_token, asset_class, segment
+            ORDER BY symbol ASC
+        """
+        rows = conn.execute(sql).fetchall()
+
+        # Build metadata map if instruments_meta exists
+        meta_map = {}
+        if has_meta:
+            try:
+                m_rows = conn.execute("SELECT instrument_token, expiry, strike FROM instruments_meta").fetchall()
+                for mr in m_rows:
+                    tok, exp, strk = mr[0], mr[1], mr[2]
+                    meta_map[int(tok)] = {
+                        "expiry": exp.strftime("%Y-%m-%d") if hasattr(exp, "strftime") else (str(exp)[:10] if exp else None),
+                        "strike": float(strk) if strk is not None else None
+                    }
+            except Exception:
+                pass
+
+        conn.close()
+
+        series_list = []
+        for r in rows:
+            sym, exch, token, asset_cls, seg, count, earliest, latest = r
+            token_int = int(token) if token is not None else 0
+            earliest_str = earliest.strftime("%Y-%m-%d") if hasattr(earliest, "strftime") else str(earliest)[:10]
+            latest_str = latest.strftime("%Y-%m-%d") if hasattr(latest, "strftime") else str(latest)[:10]
+            extra_meta = meta_map.get(token_int, {})
+
+            series_list.append({
+                "seriesId": f"{exch}:{sym}",
+                "symbol": sym,
+                "exchange": exch or "NSE",
+                "instrumentToken": token_int,
+                "assetClass": asset_cls or "INDEX",
+                "segment": seg or "INDICES",
+                "rowCount": int(count),
+                "earliestDate": earliest_str,
+                "latestDate": latest_str,
+                "expiry": extra_meta.get("expiry"),
+                "strike": extra_meta.get("strike")
+            })
+
+        return {
+            "success": True,
+            "series": series_list,
+            "totalCount": len(series_list),
+            "message": f"Found {len(series_list)} available series in vault."
+        }
+    except Exception as e:
+        logger.error(f"Error listing vault series: {e}")
+        return {
+            "success": False,
+            "series": [],
+            "totalCount": 0,
+            "message": f"Query failed: {e}"
+        }
+
+
 if __name__ == "__main__":
     status = check_vault_status()
     print(json.dumps(status, indent=2))

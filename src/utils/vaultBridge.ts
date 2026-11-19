@@ -58,6 +58,7 @@ declare global {
           end_date?: string | null,
           limit?: number | null
         ) => Promise<any>;
+        list_vault_series?: () => Promise<any>;
       };
     };
   }

@@ -22,25 +22,28 @@ import {
   DisplaySeriesMetadata,
   DisplayDispatchResult,
   DisplayCoordinatorState,
+  AvailableSeriesInfo,
 } from "./DisplayTypes";
 import {
   formatBarsForDisplay,
   extractDisplaySwings,
 } from "./DisplaySeriesFormatter";
 import { aggregateMarketBars } from "./TimeframeAggregator";
-import { queryVaultCandles } from "./VaultQueryBridge";
+import { queryVaultCandles, listVaultSeries } from "./VaultQueryBridge";
 import { parseBrokerCsv } from "../../utils/brokerCsvParser";
 
 class DataDisplayCoordinatorEngine {
   private state: DisplayCoordinatorState = {
     activeSymbol: "NIFTY 50",
     activeTimeframe: "1D",
+    availableSeries: [],
     rawBars: [],
     displayCandles: [],
     displaySwings: [],
     metadata: null,
     isLoading: false,
     statusNotice: null,
+    isVaultActive: false,
   };
 
   private listeners: Set<(state: DisplayCoordinatorState) => void> = new Set();
@@ -143,6 +146,7 @@ class DataDisplayCoordinatorEngine {
       metadata,
       isLoading: false,
       statusNotice: `Displaying ${candles.length.toLocaleString()} bars (${startDate} to ${endDate})`,
+      isVaultActive: source === "vault",
     };
 
     this.notify();
@@ -304,10 +308,85 @@ class DataDisplayCoordinatorEngine {
   }
 
   /**
+   * Scans the master DuckDB vault and updates available series descriptors.
+   */
+  public async refreshAvailableSeries(): Promise<AvailableSeriesInfo[]> {
+    try {
+      const res = await listVaultSeries();
+      if (res.success && res.series) {
+        this.state.availableSeries = res.series;
+        this.notify();
+        return res.series;
+      }
+    } catch (e) {
+      console.warn("[DataDisplayCoordinator] Error refreshing available series:", e);
+    }
+    return this.state.availableSeries;
+  }
+
+  /**
+   * Startup initializer: fetches available vault series and loads the persisted
+   * active series (defaulting to NIFTY 50 1D). If the vault has 0 records, leaves
+   * the chart clean in empty state without loading dummy sample candles.
+   */
+  public async initializeStartupData(): Promise<DisplayDispatchResult> {
+    await this.refreshAvailableSeries();
+
+    let symbol = "NIFTY 50";
+    let timeframe: DisplayTimeframe = "1D";
+
+    if (typeof localStorage !== "undefined") {
+      const savedSym = localStorage.getItem("gann_active_symbol");
+      if (savedSym && (this.state.availableSeries.some((s) => s.symbol === savedSym) || savedSym === "NIFTY 50")) {
+        symbol = savedSym;
+      }
+      const savedTf = localStorage.getItem("gann_active_timeframe") as DisplayTimeframe;
+      if (savedTf && ["1D", "1W", "1M", "60m", "15m", "5m"].includes(savedTf)) {
+        timeframe = savedTf;
+      }
+    }
+
+    this.state.activeSymbol = symbol;
+    this.state.activeTimeframe = timeframe;
+
+    const res = await this.displayVaultSeries({ symbol, timeframe });
+    if (!res.success) {
+      // Clear any stale state to preserve a clean empty prompt
+      const gridStore = useGridState.getState();
+      gridStore.setCandles([]);
+      gridStore.setSwingPoints([]);
+      this.state.displayCandles = [];
+      this.state.displaySwings = [];
+      this.state.rawBars = [];
+      this.state.isLoading = false;
+      this.state.statusNotice = "Vault has 0 records. Ingest data via 🏛️ Vault or Ingest CSV.";
+      this.notify();
+    }
+
+    return res;
+  }
+
+  /**
+   * Switches the active series symbol, queries vault candles, and updates chart.
+   */
+  public async setSeries(symbol: string): Promise<DisplayDispatchResult> {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("gann_active_symbol", symbol);
+    }
+    this.state.activeSymbol = symbol;
+    return this.displayVaultSeries({ symbol, timeframe: this.state.activeTimeframe });
+  }
+
+  /**
    * Changes active display timeframe (1D, 1W, 1M, intraday) on the
    * currently loaded raw bars without re-fetching from disk.
    */
   public setTimeframe(newTimeframe: DisplayTimeframe): DisplayDispatchResult {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("gann_active_timeframe", newTimeframe);
+    }
+    this.state.activeTimeframe = newTimeframe;
+
     if (this.state.rawBars.length === 0) {
       // If no raw bars, trigger vault fetch
       this.displayVaultSeries({ symbol: this.state.activeSymbol, timeframe: newTimeframe });

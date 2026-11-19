@@ -186,8 +186,6 @@ export interface GridState {
   };
 }
 
-const initialData = generateSampleCandleDataset(21500, 25.0);
-
 export const useGridState = create<GridState>((set, get) => ({
   pan: { x: 220, y: 560 },
   zoom: 1.0,
@@ -236,9 +234,9 @@ export const useGridState = create<GridState>((set, get) => ({
   pricePerUnit: 25.0,
   timePerUnit: "1 Day",
 
-  candles: initialData.candles,
-  swingPoints: initialData.swings,
-  patternCount: initialData.candles.filter((c) => c.pattern).length,
+  candles: [],
+  swingPoints: [],
+  patternCount: 0,
 
   setPan: (pan) =>
     set({

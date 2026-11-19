@@ -144,6 +144,11 @@ class VaultJsApi:
             return {"success": False, "candles": [], "totalCount": 0, "message": "Vault manager backend is offline."}
         return vault_manager.query_vault_candles(symbol, start_date, end_date, limit)
 
+    def list_vault_series(self):
+        if not vault_manager:
+            return {"success": False, "series": [], "totalCount": 0, "message": "Vault manager backend is offline."}
+        return vault_manager.list_vault_series()
+
 
 def get_entry_url():
     """
