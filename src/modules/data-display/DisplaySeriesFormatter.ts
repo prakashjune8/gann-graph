@@ -11,7 +11,7 @@
 
 import { CandleData, SwingPoint } from "../../types/gann";
 import { RawMarketBar, DisplayTimeframe } from "./DisplayTypes";
-import { identifyCandlestickPatterns } from "../../utils/brokerCsvParser";
+import { identifyCandlestickPatterns } from "../../utils/candlestickPatterns";
 import { detectGannSwings } from "../autoscale-v2/SwingDetector";
 
 /**

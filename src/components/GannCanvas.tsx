@@ -677,7 +677,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
     }
 
-    // 5. Lightweight Empty State Prompt (Active when vault is empty and no CSV is loaded)
+    // 5. Lightweight Empty State Prompt (Active when vault is empty or cleared)
     if (candles.length === 0) {
       ctx.save();
       ctx.fillStyle = "rgba(74, 120, 102, 0.45)";
@@ -687,7 +687,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.fillText("K&E 8x8 Drafting Desk — No Market Series Loaded", width / 2, height / 2 - 10);
       ctx.font = "11px 'Courier New', monospace";
       ctx.fillStyle = "rgba(74, 120, 102, 0.65)";
-      ctx.fillText("Select a series from the toolbar or drop CSV files into D:\\GannMarketVault\\01_DROP_INBOX", width / 2, height / 2 + 14);
+      ctx.fillText("Select a series from the toolbar or load from the Master DuckDB Vault", width / 2, height / 2 + 14);
       ctx.restore();
     }
 

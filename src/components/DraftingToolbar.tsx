@@ -1,8 +1,6 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useGridState } from "../store/useGridState";
 import { ChartDisplayMode } from "../types/gann";
-import CsvWorker from "../workers/csvWorker?worker&inline";
-import { CsvWorkerResponse } from "../workers/csvWorker";
 import { useActiveModuleTools } from "../ModuleRegistry";
 import { GridBridge } from "../core-bridge/GridBridge";
 import { DataDisplayCoordinator } from "../modules/data-display/DataDisplayCoordinator";
@@ -51,8 +49,6 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const setActiveSeedTool = useGridState((s) => s.setActiveSeedTool);
   const clearManualSeeds = useGridState((s) => s.clearManualSeeds);
   const hasCandles = useGridState((s) => s.candles.length > 0);
-  const basePrice = useGridState((s) => s.basePrice);
-  const pricePerUnit = useGridState((s) => s.pricePerUnit);
 
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [lowestDateInput, setLowestDateInput] = useState("");
@@ -69,138 +65,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
     return DataDisplayCoordinator.subscribe((s) => setCoordinatorState({ ...s }));
   }, []);
 
-  const [isParsing, setIsParsing] = useState(false);
-  const [parseNotice, setParseNotice] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const activeReaderRef = useRef<FileReader | null>(null);
-  const activeWorkerRef = useRef<Worker | null>(null);
-  const currentIngestionIdRef = useRef<number>(0);
-  const parseNoticeTimerRef = useRef<number | null>(null);
-
-  // Strict lifecycle cleanup to eradicate zombie processes & memory leaks on unmount
-  useEffect(() => {
-    return () => {
-      if (activeReaderRef.current) {
-        activeReaderRef.current.abort();
-        activeReaderRef.current = null;
-      }
-      if (activeWorkerRef.current) {
-        activeWorkerRef.current.terminate();
-        activeWorkerRef.current = null;
-      }
-      if (parseNoticeTimerRef.current) {
-        window.clearTimeout(parseNoticeTimerRef.current);
-        parseNoticeTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Abort any ongoing FileReader read
-    if (activeReaderRef.current) {
-      activeReaderRef.current.abort();
-      activeReaderRef.current = null;
-    }
-
-    // Terminate any previous dangling worker instance
-    if (activeWorkerRef.current) {
-      activeWorkerRef.current.terminate();
-      activeWorkerRef.current = null;
-    }
-
-    // Increment atomic generation token to discard stale in-flight responses (BETA-P0-01)
-    currentIngestionIdRef.current += 1;
-    const ingestionId = currentIngestionIdRef.current;
-
-    setIsParsing(true);
-    setParseNotice(null);
-
-    const reader = new FileReader();
-    activeReaderRef.current = reader;
-
-    reader.onload = (event) => {
-      // If a newer ingestion was initiated while reading file, discard immediately
-      if (currentIngestionIdRef.current !== ingestionId) {
-        return;
-      }
-      activeReaderRef.current = null;
-
-      const csvContent = event.target?.result;
-      if (typeof csvContent !== "string") {
-        setIsParsing(false);
-        return;
-      }
-
-      // Terminate any previous dangling worker instance
-      if (activeWorkerRef.current) {
-        activeWorkerRef.current.terminate();
-      }
-
-      // Instantiate dedicated Web Worker (off-main-thread processing)
-      const worker = new CsvWorker();
-      activeWorkerRef.current = worker;
-
-      worker.onmessage = (msgEvt: MessageEvent<CsvWorkerResponse>) => {
-        const data = msgEvt.data;
-        // Verify returned generation token strictly matches currentIngestionIdRef.current
-        if (currentIngestionIdRef.current !== ingestionId || data.ingestionId !== currentIngestionIdRef.current) {
-          worker.terminate();
-          if (activeWorkerRef.current === worker) {
-            activeWorkerRef.current = null;
-          }
-          return;
-        }
-
-        if (data.success && data.candles.length > 0) {
-          DataDisplayCoordinator.displayCsvSeries(csvContent);
-          setParseNotice(`✓ ${data.totalRows} bars (${data.parseTimeMs}ms)`);
-          if (parseNoticeTimerRef.current) window.clearTimeout(parseNoticeTimerRef.current);
-          parseNoticeTimerRef.current = window.setTimeout(() => setParseNotice(null), 4000);
-        } else {
-          alert(`CSV Parse Error: ${data.error || "Failed to parse data."}`);
-        }
-        setIsParsing(false);
-        worker.terminate();
-        activeWorkerRef.current = null;
-      };
-
-      worker.onerror = (err) => {
-        if (currentIngestionIdRef.current === ingestionId) {
-          console.error("CSV Worker error:", err);
-          alert("Worker encountered an error while parsing CSV.");
-          setIsParsing(false);
-        }
-        worker.terminate();
-        if (activeWorkerRef.current === worker) {
-          activeWorkerRef.current = null;
-        }
-      };
-
-      worker.postMessage({
-        csvContent,
-        columnSpacing: 2,
-        basePrice,
-        pricePerGridUnit: pricePerUnit,
-        ingestionId,
-      });
-
-      // Reset file input value so user can re-upload same file if needed
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    };
-
-    reader.onerror = () => {
-      if (currentIngestionIdRef.current === ingestionId) {
-        alert("Failed to read the selected file.");
-        setIsParsing(false);
-      }
-      activeReaderRef.current = null;
-    };
-
-    reader.readAsText(file);
-  };
+  const [isVaultLoading, setIsVaultLoading] = useState(false);
 
   const handleZoomIn = () => {
     const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
@@ -268,11 +133,11 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           onChange={async (e) => {
             const sym = e.target.value;
             if (sym) {
-              setIsParsing(true);
+              setIsVaultLoading(true);
               try {
                 await DataDisplayCoordinator.setSeries(sym);
               } finally {
-                setIsParsing(false);
+                setIsVaultLoading(false);
               }
             }
           }}
@@ -941,30 +806,8 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
 
       <div style={dividerStyle} />
 
-      {/* Data Ingest & Reset (Web Worker Powered) */}
+      {/* Dedicated Vault Controls */}
       <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-        <input
-          type="file"
-          ref={fileInputRef}
-          accept=".csv,.txt"
-          style={{ display: "none" }}
-          onChange={handleFileSelect}
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isParsing}
-          style={{
-            ...buttonStyle,
-            backgroundColor: isParsing ? "#F5F5F5" : "#E8F5E9",
-            borderColor: isParsing ? "#CCC" : "#2E7D32",
-            color: isParsing ? "#888" : "#1B5E20",
-            fontWeight: "bold",
-          }}
-          title="Upload Zerodha Kite, Alice Blue, or generic OHLCV CSV file via Web Worker"
-        >
-          {isParsing ? "⏳ Loading Data..." : "📁 Ingest CSV"}
-        </button>
-
         {onOpenVaultBackup && (
           <button
             onClick={onOpenVaultBackup}
@@ -984,24 +827,24 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         {!hasCandles ? (
           <button
             onClick={async () => {
-              setIsParsing(true);
+              setIsVaultLoading(true);
               try {
                 await DataDisplayCoordinator.initializeStartupData();
               } finally {
-                setIsParsing(false);
+                setIsVaultLoading(false);
               }
             }}
-            disabled={isParsing}
+            disabled={isVaultLoading}
             style={{
               ...buttonStyle,
-              backgroundColor: isParsing ? "#EEE" : "#E8F0FE",
+              backgroundColor: isVaultLoading ? "#EEE" : "#E8F0FE",
               borderColor: "#1967D2",
               color: "#1967D2",
               fontWeight: "bold",
             }}
             title="Load active series from Master DuckDB Vault"
           >
-            {isParsing ? "Loading..." : "🏛️ Reload Vault"}
+            {isVaultLoading ? "Loading..." : "🏛️ Reload Vault"}
           </button>
         ) : (
           <button
@@ -1041,19 +884,6 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         >
           🧹 Reset Scale
         </button>
-
-        {parseNotice && (
-          <span
-            style={{
-              fontSize: "10px",
-              color: "#2E7D32",
-              fontWeight: "bold",
-              marginLeft: "4px",
-            }}
-          >
-            {parseNotice}
-          </span>
-        )}
       </div>
     </div>
   );

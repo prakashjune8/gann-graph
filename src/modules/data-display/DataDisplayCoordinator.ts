@@ -17,7 +17,6 @@ import { useGridState } from "../../store/useGridState";
 import { CandleData, SwingPoint } from "../../types/gann";
 import {
   DisplayTimeframe,
-  RawMarketBar,
   DisplayDatasetRequest,
   DisplaySeriesMetadata,
   DisplayDispatchResult,
@@ -30,7 +29,6 @@ import {
 } from "./DisplaySeriesFormatter";
 import { aggregateMarketBars } from "./TimeframeAggregator";
 import { queryVaultCandles, listVaultSeries } from "./VaultQueryBridge";
-import { parseBrokerCsv } from "../../utils/brokerCsvParser";
 
 class DataDisplayCoordinatorEngine {
   private state: DisplayCoordinatorState = {
@@ -81,7 +79,7 @@ class DataDisplayCoordinatorEngine {
     timeframe: DisplayTimeframe,
     candles: CandleData[],
     swings: SwingPoint[],
-    source: "vault" | "csv" | "sample",
+    source: "vault" | "sample",
     autoJumpToLatest = true
   ): DisplayDispatchResult {
     const gridStore = useGridState.getState();
@@ -240,75 +238,6 @@ class DataDisplayCoordinatorEngine {
   }
 
   /**
-   * Prepares and displays an uploaded CSV string on the chart.
-   */
-  public displayCsvSeries(
-    csvContent: string,
-    request: DisplayDatasetRequest = {}
-  ): DisplayDispatchResult {
-    const symbol = request.symbol || "CSV Upload";
-    const timeframe = request.timeframe || "1D";
-
-    this.state.isLoading = true;
-    this.state.statusNotice = "Parsing CSV series...";
-    this.notify();
-
-    try {
-      const brokerCandles = parseBrokerCsv(csvContent);
-      if (brokerCandles.length === 0) {
-        throw new Error("No valid OHLCV candle rows parsed from CSV.");
-      }
-
-      const rawBars: RawMarketBar[] = brokerCandles.map((bc) => ({
-        timestamp: bc.timestamp,
-        open: bc.open,
-        high: bc.high,
-        low: bc.low,
-        close: bc.close,
-        volume: bc.volume || 0,
-      }));
-
-      this.state.rawBars = rawBars;
-
-      // 1. Timeframe aggregation
-      const aggregatedBars = aggregateMarketBars(rawBars, timeframe);
-
-      // 2. Format for display
-      const displayCandles = formatBarsForDisplay(aggregatedBars, timeframe, request.columnSpacing || 2);
-
-      // 3. Extract swings (fractal lookback parity)
-      const gridStore = useGridState.getState();
-      const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit, timeframe);
-
-      // 4. Dispatch
-      return this.dispatchToChart(
-        symbol,
-        timeframe,
-        displayCandles,
-        swings,
-        "csv",
-        request.autoJumpToLatest ?? true
-      );
-    } catch (err) {
-      this.state.isLoading = false;
-      this.state.statusNotice = `CSV Error: ${String(err)}`;
-      this.notify();
-      return {
-        success: false,
-        symbol,
-        timeframe,
-        candleCount: 0,
-        swingCount: 0,
-        startDate: "N/A",
-        endDate: "N/A",
-        source: "csv",
-        message: `Failed to display CSV series: ${err instanceof Error ? err.message : String(err)}`,
-        error: String(err),
-      };
-    }
-  }
-
-  /**
    * Scans the master DuckDB vault and updates available series descriptors.
    */
   public async refreshAvailableSeries(): Promise<AvailableSeriesInfo[]> {
@@ -360,7 +289,7 @@ class DataDisplayCoordinatorEngine {
       this.state.displaySwings = [];
       this.state.rawBars = [];
       this.state.isLoading = false;
-      this.state.statusNotice = "Vault has 0 records. Ingest data via 🏛️ Vault or Ingest CSV.";
+      this.state.statusNotice = "Vault has 0 records. Load series from Master DuckDB Vault.";
       this.notify();
     }
 

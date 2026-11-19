@@ -29,7 +29,7 @@ export interface DisplayDatasetRequest {
   endDate?: string;
   limit?: number;
   columnSpacing?: number;
-  source?: "vault" | "csv" | "sample";
+  source?: "vault" | "sample";
   autoJumpToLatest?: boolean;
 }
 
@@ -43,7 +43,7 @@ export interface DisplaySeriesMetadata {
   pricePerUnit: number;
   minPrice: number;
   maxPrice: number;
-  source: "vault" | "csv" | "sample";
+  source: "vault" | "sample";
   lastUpdated: string;
 }
 
