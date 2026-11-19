@@ -177,6 +177,7 @@ export interface GridState {
   setPriceCeiling: (ceiling: number) => void;
   setVisiblePriceExtremes: (high: number, low: number) => void;
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => void;
+  fitViewportToActiveCandles: () => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
   addSwingPoint: (point: SwingPoint) => void;
@@ -491,6 +492,127 @@ export const useGridState = create<GridState>((set, get) => ({
     }
 
     set(updates);
+  },
+
+  fitViewportToActiveCandles: () => {
+    const {
+      candles,
+      pan,
+      zoom,
+      baseUnit,
+      screenWidth,
+      screenHeight,
+      showTopAxis,
+      showBottomAxis,
+    } = get();
+
+    if (!candles || candles.length === 0) return;
+
+    const screenW = screenWidth || (typeof window !== "undefined" ? window.innerWidth : 1440);
+    const screenH = screenHeight || (typeof window !== "undefined" ? window.innerHeight : 900);
+    const zoomVal = typeof zoom === "number" ? zoom : ((zoom as any).y ?? 1.0);
+
+    // 1. Calculate active horizontal column bounds from current pan & zoom
+    const leftWorldX = (0 - pan.x) / zoomVal;
+    const rightWorldX = (screenW - pan.x) / zoomVal;
+    const minVisCol = Math.min(leftWorldX, rightWorldX) / baseUnit;
+    const maxVisCol = Math.max(leftWorldX, rightWorldX) / baseUnit;
+
+    // 2. Fetch active visible candles (with a 2-column margin)
+    let activeCandles = candles.filter(
+      (c) => c.gridCol >= minVisCol - 2 && c.gridCol <= maxVisCol + 2
+    );
+
+    // Fallback: If panning over a gap or no candles are directly in view, find nearest bars
+    if (activeCandles.length === 0) {
+      const midCol = (minVisCol + maxVisCol) / 2;
+      let closestCandle = candles[0];
+      let minDiff = Math.abs(candles[0].gridCol - midCol);
+      for (let i = 1; i < candles.length; i++) {
+        const diff = Math.abs(candles[i].gridCol - midCol);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestCandle = candles[i];
+        }
+      }
+      const closestIdx = candles.indexOf(closestCandle);
+      const startIdx = Math.max(0, closestIdx - 5);
+      const endIdx = Math.min(candles.length, closestIdx + 6);
+      activeCandles = candles.slice(startIdx, endIdx);
+    }
+
+    // 3. Compute localMinLow and localMaxHigh strictly from active candles
+    let localMinLow = Infinity;
+    let localMaxHigh = -Infinity;
+    for (let i = 0; i < activeCandles.length; i++) {
+      const c = activeCandles[i];
+      if (Number.isFinite(c.low) && c.low > 0 && c.low < localMinLow) localMinLow = c.low;
+      if (Number.isFinite(c.high) && c.high > 0 && c.high > localMaxHigh) localMaxHigh = c.high;
+    }
+
+    if (!Number.isFinite(localMinLow) || !Number.isFinite(localMaxHigh) || localMaxHigh <= 0) {
+      return;
+    }
+
+    // 4. Dynamic +10% Upper Ceiling Headroom & Non-negative Lower Floor
+    const localCeiling = Math.round(localMaxHigh * 1.10 * 100) / 100;
+    const priceSpan = Math.max(1, localCeiling - localMinLow);
+
+    // Available vertical canvas height (excluding rulers and padding)
+    const topOffset = showTopAxis ? 30 : 0;
+    const bottomOffset = showBottomAxis ? 32 : 0;
+    const availableH = Math.max(150, screenH - topOffset - bottomOffset - 40);
+
+    // Number of base minor squares in available unzoomed pixel height
+    const numGridSquares = availableH / baseUnit;
+    const rawIdealScale = priceSpan / numGridSquares;
+
+    // Institutional Gann Harmonic Scale Ladders
+    const harmonics = [
+      0.01, 0.02, 0.025, 0.05,
+      0.1, 0.125, 0.2, 0.25, 0.333, 0.375, 0.5, 0.666, 0.75, 0.875,
+      1, 1.25, 1.5, 2, 2.5, 3.333, 3.75, 5, 6.666, 7.5, 8.75,
+      10, 12.5, 15, 20, 25, 33.33, 37.5, 50, 66.66, 75, 87.5,
+      100, 125, 150, 200, 250, 333.3, 375, 500, 666.6, 750, 875, 1000,
+      1250, 1500, 2000, 2500, 3333, 3750, 5000, 10000,
+    ];
+
+    let safeScale = harmonics[0];
+    let minDiff = Math.abs(rawIdealScale - harmonics[0]);
+    for (let i = 1; i < harmonics.length; i++) {
+      const diff = Math.abs(rawIdealScale - harmonics[i]);
+      if (diff < minDiff) {
+        minDiff = diff;
+        safeScale = harmonics[i];
+      }
+    }
+    safeScale = Math.min(10000, Math.max(0.01, safeScale));
+
+    // 5. Anchor basePrice cleanly to major 1-inch block just below localMinLow
+    // Avoids forcing distant baseline near zero when candles sit in higher price bands
+    const harmonicBlock = safeScale * 8;
+    const calculatedBasePrice = Math.max(
+      0,
+      Math.floor((localMinLow - harmonicBlock * 0.5) / harmonicBlock) * harmonicBlock
+    );
+
+    // 6. Vertical centering: midpoint of [localCeiling, localMinLow] aligns with canvas vertical center
+    const centerPrice = (localCeiling + localMinLow) / 2;
+    const centerY = (screenH + topOffset - bottomOffset) / 2;
+    const centerWorldY = ((centerPrice - calculatedBasePrice) / safeScale) * baseUnit;
+    const targetPanY = Math.round(centerY + centerWorldY * zoomVal);
+
+    set({
+      pricePerUnit: safeScale,
+      basePrice: calculatedBasePrice,
+      priceCeiling: localCeiling,
+      visibleHighestPrice: localMaxHigh,
+      visibleLowestPrice: localMinLow,
+      pan: {
+        x: pan.x,
+        y: targetPanY,
+      },
+    });
   },
 
   setCandles: (candles) => {

@@ -1,188 +1,34 @@
 /**
- * W.D. Gann Viewport Coordinator & Scaler Module
- * Auto-Scale V2 — Scaler Fix 2
+ * W.D. Gann Viewport Scaler Module
+ * Auto-Scale V2 — Active Candle Viewport Scaler
  *
- * Implements the Viewport Coordinator:
- * 1. Traffic Cop Listener: Monitors canvas viewport boundaries (visibleMaxPrice, visibleMinPrice, visibleRange).
- * 2. 3% Hysteresis Deadband: Prevents micro-jitter during pan/zoom by suppressing scale recalculation
- *    when prices remain within the [lockedLowerBoundary * 0.97, lockedUpperBoundary * 1.03] deadband buffer.
- * 3. Dynamic Harmonic Octave Recalculation & Dispatch: Computes the expanded octave vibration
- *    via OctaveMultiplier and dispatches calibratePriceScale(lockedScale) to the core engine.
+ * Implements the Viewport Scaler action:
+ * 1. Scope Vertical Fit to Active/Visible Candles:
+ *    - Uses active/visible candles' low-to-high range (with fallback to nearest valid bars if over a gap).
+ *    - Avoids forcing a distant low baseline (such as near zero or a base level) when active candles sit in a higher local price band.
+ * 2. Preserve Ceiling, Floor & Scale Guardrails:
+ *    - Maintains +10% upper ceiling headroom above relevant high (localMaxHigh * 1.10).
+ *    - Non-negative (>= 0) lower price floor and institutional Gann harmonic scale ladders clamped to [0.01, 10000].
+ *    - Keeps vertical pan, ruler ticks, ceiling marker, and swing markers perfectly aligned.
  */
 
 import { GannModule } from "../../ModuleRegistry";
 import { IGridBridge } from "../../core-bridge/GridBridge";
-import { useGridState } from "../../store/useGridState";
-import { extractGenesisNodes } from "./HistoricSeedEngine";
-import { getExpandedVibration } from "./OctaveMultiplier";
-import { velocityToPricePerUnit } from "./PixelTranslator";
 
 let isScalerActive = false;
-let lockedScale: number | null = null;
-let lockedMultiplier: number | null = null;
-let lockedUpperBoundary = 0;
-let lockedLowerBoundary = 0;
-let gapLockActive = false;
 let unregisterOverlayFn: (() => void) | null = null;
 let unsubscribeBridgeFn: (() => void) | null = null;
 let isRecalibrating = false;
 
 /**
- * Evaluates current visible price bounds against hysteresis deadbands
- * and recalculates/dispatches the expanded octave scale when boundaries are breached.
- * Enforces The Gap Lock to suppress recalculation loops when panning across overnight price gaps.
+ * Fits the vertical price scale and centering directly around the active/visible candles.
+ * Avoids stretching across a wide base-to-ceiling span that flattens candles into a thin band.
  */
-function evaluateViewportScale(bridge: IGridBridge, height: number): void {
-  if (!isScalerActive || isRecalibrating) return;
-
-  const candles = bridge.getCandles();
-  if (!candles || candles.length === 0) return;
-
-  // =========================================================================
-  // CORRUPTED STATE SANITY GUARD:
-  // If pricePerUnit has leaked or exploded (> 1000 or <= 0), reset to 25.0 immediately
-  // =========================================================================
-  if (bridge.getPricePerUnit() > 1000 || bridge.getPricePerUnit() <= 0) {
-    bridge.calibratePriceScale(25.0);
-    lockedScale = null;
-    lockedUpperBoundary = 0;
-    lockedLowerBoundary = 0;
-    lockedMultiplier = null;
-    return;
-  }
-
-  // =========================================================================
-  // 1. DECOUPLED CANDLE-BASED VIEWPORT PRICE BOUNDARIES
-  // Calculate price bounds strictly from visible market candles (leftCol to rightCol),
-  // NEVER from worldYToPrice(screen pixels), eliminating positive feedback loops.
-  // =========================================================================
-  const state = bridge.getState();
-  const baseUnit = state.baseUnit || 12;
-  const screenWidth = state.screenWidth || (typeof window !== "undefined" ? window.innerWidth : 1440);
-  const leftWorld = bridge.screenToWorld(0, 0);
-  const rightWorld = bridge.screenToWorld(screenWidth, 0);
-  const leftCol = Math.min(leftWorld.x, rightWorld.x) / baseUnit;
-  const rightCol = Math.max(leftWorld.x, rightWorld.x) / baseUnit;
-
-  // Fetch the currently visible subset of candles based on visible columns
-  const visibleCandles = candles.filter((c) => c.gridCol >= leftCol - 2 && c.gridCol <= rightCol + 2);
-  const activeCandles = visibleCandles.length > 0 ? visibleCandles : candles;
-
-  let candleMax = -Infinity;
-  let candleMin = Infinity;
-  for (let i = 0; i < activeCandles.length; i++) {
-    const c = activeCandles[i];
-    if (Number.isFinite(c.high) && c.high > 0 && c.high > candleMax) candleMax = c.high;
-    if (Number.isFinite(c.low) && c.low > 0 && c.low < candleMin) candleMin = c.low;
-  }
-
-  const visibleMaxPrice = Number.isFinite(candleMax) && candleMax > 0 ? candleMax : 22520;
-  const visibleMinPrice = Number.isFinite(candleMin) && candleMin > 0 ? candleMin : 21380;
-  const visibleRange = Math.max(10, visibleMaxPrice - visibleMinPrice);
-
-  // Synchronize active-window extremes with central store
-  useGridState.getState().setVisiblePriceExtremes(visibleMaxPrice, visibleMinPrice);
-
-  // =========================================================================
-  // 2. VIEWPORT GAP SCANNER & HYSTERESIS SUPPRESSION PROTOCOL
-  // =========================================================================
-  let maxVisibleGapPercent = 0;
-  for (let i = 1; i < visibleCandles.length; i++) {
-    const prev = visibleCandles[i - 1];
-    const curr = visibleCandles[i];
-    if (prev.close > 0) {
-      const gapPercent = Math.abs(curr.open - prev.close) / prev.close;
-      if (gapPercent > maxVisibleGapPercent) {
-        maxVisibleGapPercent = gapPercent;
-      }
-    }
-  }
-
-  const HYSTERESIS_THRESHOLD = 0.03; // 3%
-  const isGapDetected = maxVisibleGapPercent > HYSTERESIS_THRESHOLD;
-  gapLockActive = isGapDetected;
-
-  // =========================================================================
-  // 3. BOUNDARY DEADBAND CHECK (3% STANDARD vs. 10% GAP LOCK OVERRIDE)
-  // =========================================================================
-  if (lockedScale !== null && lockedUpperBoundary > 0 && lockedLowerBoundary > 0) {
-    if (gapLockActive) {
-      // Macro-Scale Override: Widen temporary lock boundaries to +/- 10% to absorb gap volatility
-      if (visibleMaxPrice <= lockedUpperBoundary && visibleMinPrice >= lockedLowerBoundary) {
-        return;
-      }
-    } else {
-      // Standard 3% Hysteresis Deadband Logic
-      const isUpperBreached = visibleMaxPrice > lockedUpperBoundary * 1.03;
-      const isLowerBreached = visibleMinPrice < lockedLowerBoundary * 0.97;
-
-      if (!isUpperBreached && !isLowerBreached) {
-        // Strictly inside the 3% buffer zone -> maintain buttery smooth chart
-        return;
-      }
-    }
-  }
-
-  // =========================================================================
-  // 4. SCALE RECALCULATION & DISPATCH
-  // =========================================================================
+export function fitViewportToActiveCandles(bridge: IGridBridge): void {
+  if (isRecalibrating) return;
   try {
     isRecalibrating = true;
-
-    // Fetch Master Genesis Vibration from HistoricSeedEngine (geometric slope points/col)
-    // Adapting lookback dynamically based on active timeframe and manual seeds
-    const lowestSeed = bridge.getLowestSeed();
-    const highestSeed = bridge.getHighestSeed();
-    const genesis = extractGenesisNodes(
-      candles as any,
-      bridge.getTimePerUnit(),
-      lowestSeed,
-      highestSeed
-    );
-    const seedPrice =
-      genesis.atlNode && genesis.atlNode.price > 0 ? genesis.atlNode.price : visibleMinPrice;
-    const baseVibration =
-      genesis.bullGenesisVelocity > 0 && Number.isFinite(genesis.bullGenesisVelocity)
-        ? genesis.bullGenesisVelocity
-        : seedPrice * 0.001;
-
-    // Pass through Harmonic Octave Multiplier (Unified Harmonic Sequence with Magnitude Hysteresis)
-    const finalVibration = getExpandedVibration(
-      baseVibration,
-      seedPrice,
-      visibleMaxPrice,
-      visibleRange,
-      lockedMultiplier ?? undefined
-    );
-
-    if (Number.isFinite(finalVibration) && finalVibration > 0) {
-      lockedMultiplier = Math.round(finalVibration / baseVibration);
-      const baseCellWidth = state.baseUnit || 12;
-      const baseCellHeight = state.baseUnit || 12;
-      // Fixed unzoomed grid cell dimensions for 1:1 isotropic scale invariant (zoom never distorts scale)
-      const colWidth = baseCellWidth;
-      const rowHeight = baseCellHeight;
-
-      // Convert the vibration to pricePerUnit via PixelTranslator to guarantee a 1:1 screen aspect ratio
-      const translatedPPU = velocityToPricePerUnit(finalVibration, colWidth, rowHeight);
-      const safeScale = Math.min(1000, Math.max(0.1, translatedPPU));
-
-      lockedScale = safeScale;
-      // Dynamic +10% Upper Ceiling Headroom: Always maintain headroom above the highest visible price
-      lockedUpperBoundary = visibleMaxPrice * 1.10;
-      lockedLowerBoundary = Math.max(0, gapLockActive ? visibleMinPrice * 0.90 : visibleMinPrice);
-
-      const currentScale = bridge.getPricePerUnit();
-      if (Math.abs(currentScale - lockedScale) > 0.0001) {
-        // Calculate screen vertical center to anchor price and prevent vertical displacement
-        const screenH = state.screenHeight || height || 600;
-        const centerY = screenH / 2;
-        const centerWorld = bridge.screenToWorld(0, centerY);
-        const centerPrice = bridge.worldToPrice(centerWorld.y);
-
-        bridge.calibratePriceScale(lockedScale, centerPrice);
-      }
-    }
+    bridge.fitViewportToActiveCandles();
   } finally {
     isRecalibrating = false;
   }
@@ -195,18 +41,15 @@ function registerScalerHooks(bridge: IGridBridge): () => void {
     if (!isScalerActive) return;
     if (dimensions.height !== lastHeight) {
       lastHeight = dimensions.height;
-      evaluateViewportScale(b, dimensions.height);
+      fitViewportToActiveCandles(b);
     }
   });
 
   // Hook 2: State change listener to catch pan adjustments (NEVER zoom, preserving isotropic scale)
   const unsub = bridge.subscribe((state, prevState) => {
     if (!isScalerActive) return;
-    if (
-      state.pan.x !== prevState.pan.x ||
-      state.pan.y !== prevState.pan.y
-    ) {
-      evaluateViewportScale(bridge, state.screenHeight || 600);
+    if (state.pan.x !== prevState.pan.x) {
+      fitViewportToActiveCandles(bridge);
     }
   });
 
@@ -219,38 +62,23 @@ function registerScalerHooks(bridge: IGridBridge): () => void {
 export const ViewportScalerModule: GannModule = {
   id: "autoscale-v2-viewport-scaler",
   name: "Gann Viewport Coordinator (Auto-Scale V2)",
-  version: "1.0.0",
-  description: "Coordinates viewport pan/zoom with expanded Genesis harmonic octaves using a 3% hysteresis deadband.",
+  version: "1.1.0",
+  description: "Fits vertical price scale tightly around active/visible candles with +10% upper ceiling headroom.",
   category: "analysis",
   tools: [
     {
       id: "toggle-viewport-autoscale-v2",
       label: "⚖️ Viewport Scaler",
-      title: "Toggle Dynamic 3% Hysteresis Viewport Harmonic Scaler (Auto-Scale V2)",
-      variant: "toggle",
+      title: "Fit vertical price scale around active/visible candles with +10% upper headroom",
+      variant: "primary",
       isActive: () => isScalerActive,
       onClick: (bridge: IGridBridge) => {
-        isScalerActive = !isScalerActive;
-        if (!isScalerActive) {
-          lockedScale = null;
-          lockedMultiplier = null;
-          lockedUpperBoundary = 0;
-          lockedLowerBoundary = 0;
-          gapLockActive = false;
-        } else {
-          evaluateViewportScale(bridge, 600);
-        }
+        fitViewportToActiveCandles(bridge);
       },
     },
   ],
   initialize: (bridge: IGridBridge) => {
     isScalerActive = false;
-    lockedScale = null;
-    lockedMultiplier = null;
-    lockedUpperBoundary = 0;
-    lockedLowerBoundary = 0;
-    gapLockActive = false;
-
     if (unregisterOverlayFn) {
       unregisterOverlayFn();
     }
@@ -258,11 +86,6 @@ export const ViewportScalerModule: GannModule = {
   },
   destroy: () => {
     isScalerActive = false;
-    lockedScale = null;
-    lockedMultiplier = null;
-    lockedUpperBoundary = 0;
-    lockedLowerBoundary = 0;
-    gapLockActive = false;
     if (unregisterOverlayFn) {
       unregisterOverlayFn();
       unregisterOverlayFn = null;

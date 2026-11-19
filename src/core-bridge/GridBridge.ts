@@ -92,6 +92,7 @@ export interface IGridBridge {
   setSwingPoints(points: SwingPoint[]): void;
   addSwingPoint(point: SwingPoint): void;
   calibratePriceScale(input: CandleData[] | number, maintainCenterPrice?: number): void;
+  fitViewportToActiveCandles(): void;
   clearAllData(): void;
   loadSampleDataset(): void;
 
@@ -280,6 +281,10 @@ class CoreGridBridge implements IGridBridge {
 
   clearManualSeeds(): void {
     useGridState.getState().clearManualSeeds();
+  }
+
+  fitViewportToActiveCandles(): void {
+    useGridState.getState().fitViewportToActiveCandles();
   }
 
   // Data Pipeline Dispatchers
