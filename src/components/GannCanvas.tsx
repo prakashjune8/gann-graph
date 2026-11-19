@@ -72,6 +72,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const swingPoints = useGridState((s) => s.swingPoints);
   const basePrice = useGridState((s) => s.basePrice);
   const pricePerUnit = useGridState((s) => s.pricePerUnit);
+  // Strict canvas rendering guard: clamp pricePerUnit to physically valid range [0.01, 10000]
+  const safePricePerUnit = Number.isFinite(pricePerUnit) && pricePerUnit > 0 && pricePerUnit <= 10000 ? pricePerUnit : 25.0;
   const panBy = useGridState((s) => s.panBy);
   const zoomAt = useGridState((s) => s.zoomAt);
   const updateCursor = useGridState((s) => s.updateCursor);
@@ -613,7 +615,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         if (chartMode === "SWING_STEP") {
           ctx.fillStyle = "#1E2A24";
           ctx.font = "600 10px 'Courier New', monospace";
-          const dynamicRow = Math.round((pt.price - basePrice) / pricePerUnit);
+          const dynamicRow = Math.round((pt.price - basePrice) / safePricePerUnit);
           const tag = `[${pt.gridCol},${dynamicRow}] \u20B9${pt.price.toLocaleString("en-IN")}`;
           const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
           ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
@@ -732,7 +734,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.stroke();
 
         if (isMajor) {
-          const priceVal = basePrice + row * pricePerUnit;
+          const priceVal = basePrice + row * safePricePerUnit;
           const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
@@ -777,7 +779,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.stroke();
 
         if (isMajor) {
-          const priceVal = basePrice + row * pricePerUnit;
+          const priceVal = basePrice + row * safePricePerUnit;
           const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
@@ -986,7 +988,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       return;
     }
 
-    const snappedPrice = basePrice + cursorGrid.row * pricePerUnit;
+    const snappedPrice = basePrice + cursorGrid.row * safePricePerUnit;
 
     const leftRulerWidth = showLeftAxis ? 84 : 0;
     const rightRulerWidth = showRightAxis ? 88 : 0;

@@ -52,6 +52,12 @@ declare global {
         restore_vault: (sourcePath?: string | null) => Promise<VaultActionResult>;
         restore_vault_from_folder: (folderPath?: string | null) => Promise<VaultActionResult>;
         initialize_fresh_vault: () => Promise<VaultActionResult>;
+        query_vault_candles?: (
+          symbol?: string,
+          start_date?: string | null,
+          end_date?: string | null,
+          limit?: number | null
+        ) => Promise<any>;
       };
     };
   }

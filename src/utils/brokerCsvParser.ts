@@ -6,6 +6,7 @@
 
 import { SwingPoint, CandleData } from "../types/gann";
 import { identifyCandlestickPatterns } from "./candlestickPatterns";
+export { identifyCandlestickPatterns };
 
 export interface BrokerCandle {
   timestamp: string;

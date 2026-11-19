@@ -5,6 +5,7 @@ import { CoordinateOverlay } from "./components/CoordinateOverlay";
 import { VaultBackupModal } from "./components/VaultBackupModal";
 import { MissingVaultModal } from "./components/MissingVaultModal";
 import { getVaultStatus, VaultStatus } from "./utils/vaultBridge";
+import { DataDisplayCoordinator } from "./modules/data-display";
 import { useGridState } from "./store/useGridState";
 
 export const App: React.FC = () => {
@@ -34,11 +35,10 @@ export const App: React.FC = () => {
   }, []);
 
   const handleVaultRestored = () => {
-    // If a restored vault is detected, we can reload or recalibrate state
-    const candles = useGridState.getState().candles;
-    if (!candles || candles.length === 0) {
+    // When a vault is restored, automatically coordinate display of NIFTY 50 data
+    DataDisplayCoordinator.displayVaultSeries({ symbol: "NIFTY 50", timeframe: "1D" }).catch(() => {
       useGridState.getState().loadSampleDataset();
-    }
+    });
   };
 
   return (

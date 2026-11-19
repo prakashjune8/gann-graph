@@ -500,14 +500,14 @@ export const useGridState = create<GridState>((set, get) => ({
   // Price (in Rupees) -> World Y (in pixels)
   priceToWorldY: (price: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
-    const safeDivisor = Math.max(0.0001, pricePerUnit);
+    const safeDivisor = Math.min(10000, Math.max(0.0001, pricePerUnit));
     return ((price - basePrice) / safeDivisor) * baseUnit;
   },
 
   // World Y (in pixels) -> Price (in Rupees)
   worldYToPrice: (worldY: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
-    const safeDivisor = Math.max(0.0001, pricePerUnit);
+    const safeDivisor = Math.min(10000, Math.max(0.0001, pricePerUnit));
     return basePrice + (worldY / baseUnit) * safeDivisor;
   },
 

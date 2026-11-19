@@ -618,6 +618,97 @@ def initialize_fresh_vault(vault_root: Path = DEFAULT_VAULT_ROOT) -> Dict[str, A
         }
 
 
+def query_vault_candles(
+    symbol: str = "NIFTY 50",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: Optional[int] = None,
+    vault_root: Path = DEFAULT_VAULT_ROOT
+) -> Dict[str, Any]:
+    """
+    Queries historical candlestick rows from the DuckDB master vault
+    sorted ascending by timestamp. Handles zero-OHL normalization and
+    returns standard JSON-serializable list of candle dictionaries.
+    """
+    root = Path(vault_root)
+    db_file = root / "04_VAULT_DB" / "gann_market_data.duckdb"
+
+    if not db_file.exists():
+        return {
+            "success": False,
+            "candles": [],
+            "totalCount": 0,
+            "message": f"Vault database not found at {db_file}"
+        }
+
+    if duckdb is None:
+        return {
+            "success": False,
+            "candles": [],
+            "totalCount": 0,
+            "message": "DuckDB driver not loaded in Python environment"
+        }
+
+    try:
+        conn = duckdb.connect(str(db_file), read_only=True)
+        query = ["SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = ?"]
+        params = [symbol]
+
+        if start_date:
+            query.append("AND timestamp >= ?")
+            params.append(start_date)
+        if end_date:
+            query.append("AND timestamp <= ?")
+            params.append(end_date)
+
+        query.append("ORDER BY timestamp ASC")
+
+        if limit and limit > 0:
+            query.append("LIMIT ?")
+            params.append(limit)
+
+        sql = " ".join(query)
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+
+        candles = []
+        for r in rows:
+            ts_dt = r[0]
+            ts_str = ts_dt.strftime("%Y-%m-%d") if hasattr(ts_dt, "strftime") else str(ts_dt)[:10]
+            o, h, l, c, v = float(r[1]), float(r[2]), float(r[3]), float(r[4]), int(r[5] or 0)
+
+            # Zero-OHL normalization
+            if h <= 0 or l <= 0:
+                o, h, l = c, c, c
+
+            candles.append({
+                "timestamp": ts_str,
+                "open": o,
+                "high": h,
+                "low": l,
+                "close": c,
+                "volume": v
+            })
+
+        return {
+            "success": True,
+            "symbol": symbol,
+            "candles": candles,
+            "totalCount": len(candles),
+            "startDate": candles[0]["timestamp"] if candles else "N/A",
+            "endDate": candles[-1]["timestamp"] if candles else "N/A",
+            "message": f"Retrieved {len(candles)} bars for {symbol}."
+        }
+    except Exception as e:
+        logger.error(f"Error querying vault candles: {e}")
+        return {
+            "success": False,
+            "candles": [],
+            "totalCount": 0,
+            "message": f"Query failed: {e}"
+        }
+
+
 if __name__ == "__main__":
     status = check_vault_status()
     print(json.dumps(status, indent=2))

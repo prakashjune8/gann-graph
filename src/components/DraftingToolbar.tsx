@@ -5,6 +5,7 @@ import CsvWorker from "../workers/csvWorker?worker&inline";
 import { CsvWorkerResponse } from "../workers/csvWorker";
 import { useActiveModuleTools } from "../ModuleRegistry";
 import { GridBridge } from "../core-bridge/GridBridge";
+import { DataDisplayCoordinator } from "../modules/data-display/DataDisplayCoordinator";
 
 interface DraftingToolbarProps {
   showGannRay: boolean;
@@ -40,11 +41,8 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const toggleRightAxis = useGridState((s) => s.toggleRightAxis);
   const toggleAxisTransparency = useGridState((s) => s.toggleAxisTransparency);
   const toggleCrosshair = useGridState((s) => s.toggleCrosshair);
-  const loadSampleDataset = useGridState((s) => s.loadSampleDataset);
   const clearAllData = useGridState((s) => s.clearAllData);
   const hasCandles = useGridState((s) => s.candles.length > 0);
-  const setCandles = useGridState((s) => s.setCandles);
-  const setSwingPoints = useGridState((s) => s.setSwingPoints);
   const basePrice = useGridState((s) => s.basePrice);
   const pricePerUnit = useGridState((s) => s.pricePerUnit);
 
@@ -137,9 +135,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         }
 
         if (data.success && data.candles.length > 0) {
-          setCandles(data.candles);
-          setSwingPoints(data.swings);
-          jumpToLatest(window.innerWidth, window.innerHeight);
+          DataDisplayCoordinator.displayCsvSeries(csvContent);
           setParseNotice(`✓ ${data.totalRows} bars (${data.parseTimeMs}ms)`);
           if (parseNoticeTimerRef.current) window.clearTimeout(parseNoticeTimerRef.current);
           parseNoticeTimerRef.current = window.setTimeout(() => setParseNotice(null), 4000);
@@ -516,16 +512,30 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
 
         {!hasCandles ? (
           <button
-            onClick={loadSampleDataset}
+            onClick={async () => {
+              setIsParsing(true);
+              try {
+                const res = await DataDisplayCoordinator.displayVaultSeries({ symbol: "NIFTY 50", timeframe: "1D" });
+                if (!res.success) {
+                  DataDisplayCoordinator.displaySampleSeries();
+                }
+              } catch {
+                DataDisplayCoordinator.displaySampleSeries();
+              } finally {
+                setIsParsing(false);
+              }
+            }}
+            disabled={isParsing}
             style={{
               ...buttonStyle,
-              backgroundColor: "#E8F0FE",
+              backgroundColor: isParsing ? "#EEE" : "#E8F0FE",
               borderColor: "#1967D2",
               color: "#1967D2",
               fontWeight: "bold",
             }}
+            title="Load historical series from Market Vault (or sample fallback)"
           >
-            + Load NIFTY 50
+            {isParsing ? "Loading..." : "+ Load NIFTY 50"}
           </button>
         ) : (
           <button
