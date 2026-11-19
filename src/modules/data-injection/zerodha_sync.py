@@ -359,7 +359,7 @@ def sync_instrument_data(
                 df.rename(columns={"date": "timestamp"}, inplace=True)
 
             # Strip timezones for clean DuckDB TIMESTAMP indexing
-            if pd.api.types.is_datetime64tz_dtype(df["timestamp"]):
+            if isinstance(df["timestamp"].dtype, pd.DatetimeTZDtype):
                 df["timestamp"] = df["timestamp"].dt.tz_localize(None)
 
             df["symbol"] = symbol
@@ -397,7 +397,7 @@ def print_database_summary(conn: duckdb.DuckDBPyConnection) -> None:
     try:
         total_rows = conn.execute("SELECT COUNT(*) FROM market_data").fetchone()[0]
         meta_count = conn.execute("SELECT COUNT(*) FROM instruments_meta").fetchone()[0]
-        logger.info(f"Total 1-Minute Candle Records: {total_rows:,}")
+        logger.info(f"Total Market Data Records:     {total_rows:,}")
         logger.info(f"Total Filtered Instruments:    {meta_count:,}")
 
         if total_rows > 0:
@@ -413,10 +413,204 @@ def print_database_summary(conn: duckdb.DuckDBPyConnection) -> None:
                 ORDER BY count DESC 
                 LIMIT 10
             """).fetchdf()
-            logger.info(f"\nTop 10 Instruments by Stored Candle Count:\n{summary.to_string(index=False)}")
+            logger.info(f"\nStored Instruments Summary:\n{summary.to_string(index=False)}")
     except Exception as e:
         logger.error(f"Error querying DuckDB summary: {e}")
     logger.info("======================================================")
+
+
+def import_nifty_dir(
+    conn: duckdb.DuckDBPyConnection,
+    dir_path: str,
+    symbol: str = "NIFTY 50",
+    exchange: str = "NSE",
+    instrument_token: int = 256265,
+) -> int:
+    """
+    Batch imports and normalizes a folder of historical Nifty 50 CSV files into DuckDB.
+    Key capabilities:
+      1. Header Trimming: Cleans leading/trailing whitespace, strips UTF-8 BOM.
+      2. Zero-OHL Close-Only Handling: Early years (1990-1995) have Open=0, High=0, Low=0.
+         Synthesizes Open, High, and Low from Close with boundary integrity guards.
+      3. Ascending Date Sorting: Parses Indian dates (%d-%b-%Y), sorts chronologically ascending.
+      4. Deduplication & Persistence: Deduplicates on (instrument_token, timestamp),
+         executing native DuckDB INSERT OR REPLACE.
+    """
+    folder = Path(dir_path)
+    if not folder.exists() or not folder.is_dir():
+        raise FileNotFoundError(f"Directory not found: {dir_path}")
+
+    csv_files = sorted(list({p.resolve() for p in folder.glob("*.csv")} | {p.resolve() for p in folder.glob("*.CSV")}))
+    if not csv_files:
+        logger.warning(f"No CSV files found in {dir_path}")
+        return 0
+
+    logger.info(f"Found {len(csv_files)} CSV files in {dir_path}. Commencing batch normalization...")
+
+    all_dfs: List[pd.DataFrame] = []
+    total_raw_rows = 0
+    total_zero_ohl_fixed = 0
+
+    for file_path in csv_files:
+        try:
+            # Read CSV with utf-8-sig to automatically strip UTF-8 BOM
+            df = pd.read_csv(file_path, encoding="utf-8-sig")
+            if df.empty:
+                continue
+
+            # Header trimming: strip all leading and trailing whitespace from column names
+            df.columns = [str(c).strip() for c in df.columns]
+            cols_lower = {c.lower(): c for c in df.columns}
+
+            # Flexible column mapping
+            date_col = next((cols_lower[k] for k in cols_lower if "date" in k), None)
+            open_col = next((cols_lower[k] for k in cols_lower if k == "open"), None)
+            high_col = next((cols_lower[k] for k in cols_lower if k == "high"), None)
+            low_col = next((cols_lower[k] for k in cols_lower if k == "low"), None)
+            close_col = next((cols_lower[k] for k in cols_lower if k == "close"), None)
+            vol_col = next((cols_lower[k] for k in cols_lower if "shares" in k or "vol" in k), None)
+
+            if not date_col or not close_col:
+                logger.warning(f"Skipping {file_path.name}: Missing essential Date or Close columns.")
+                continue
+
+            # Parse dates (%d-%b-%Y e.g., '24-DEC-1990', fallback to dayfirst)
+            parsed_dates = pd.to_datetime(df[date_col].astype(str).str.strip(), format="%d-%b-%Y", errors="coerce")
+            unparsed_mask = parsed_dates.isna()
+            if unparsed_mask.any():
+                parsed_dates[unparsed_mask] = pd.to_datetime(
+                    df.loc[unparsed_mask, date_col].astype(str).str.strip(),
+                    dayfirst=True,
+                    errors="coerce"
+                )
+
+            # Strip timezones for uniform timestamp storage
+            if isinstance(parsed_dates.dtype, pd.DatetimeTZDtype):
+                parsed_dates = parsed_dates.dt.tz_localize(None)
+
+            # Clean and sanitize numeric columns
+            def clean_numeric(series: Optional[pd.Series], default_val: float = 0.0) -> pd.Series:
+                if series is None:
+                    return pd.Series(default_val, index=df.index, dtype="float64")
+                cleaned = series.astype(str).str.replace(r"[^0-9.-]+", "", regex=True)
+                return pd.to_numeric(cleaned, errors="coerce").fillna(default_val)
+
+            close_vals = clean_numeric(df[close_col], 0.0)
+            open_vals = clean_numeric(df[open_col] if open_col else None, 0.0)
+            high_vals = clean_numeric(df[high_col] if high_col else None, 0.0)
+            low_vals = clean_numeric(df[low_col] if low_col else None, 0.0)
+            vol_vals = clean_numeric(df[vol_col] if vol_col else None, 0.0).astype("int64")
+
+            # Filter valid rows (must have valid date and close > 0)
+            valid_mask = parsed_dates.notna() & (close_vals > 0)
+            if not valid_mask.any():
+                continue
+
+            parsed_dates = parsed_dates[valid_mask]
+            close_vals = close_vals[valid_mask]
+            open_vals = open_vals[valid_mask]
+            high_vals = high_vals[valid_mask]
+            low_vals = low_vals[valid_mask]
+            vol_vals = vol_vals[valid_mask]
+
+            # Zero-OHL Close-Only Handling for early years
+            # When open/high/low are 0 or missing, synthesize them from close
+            zero_ohl_mask = (open_vals <= 0) | (high_vals <= 0) | (low_vals <= 0)
+            zero_count = zero_ohl_mask.sum()
+            if zero_count > 0:
+                total_zero_ohl_fixed += int(zero_count)
+                open_vals = open_vals.mask(open_vals <= 0, close_vals)
+                high_vals = high_vals.mask(high_vals <= 0, close_vals)
+                low_vals = low_vals.mask(low_vals <= 0, close_vals)
+
+            # Boundary integrity guarantees: High is at least max(Open, Close), Low is at most min(Open, Close)
+            high_vals = pd.concat([high_vals, open_vals, close_vals], axis=1).max(axis=1)
+            low_vals = pd.concat([low_vals, open_vals, close_vals], axis=1).min(axis=1)
+
+            norm_df = pd.DataFrame({
+                "symbol": symbol,
+                "exchange": exchange,
+                "instrument_token": instrument_token,
+                "timestamp": parsed_dates,
+                "open": open_vals,
+                "high": high_vals,
+                "low": low_vals,
+                "close": close_vals,
+                "volume": vol_vals,
+                "oi": 0
+            })
+
+            total_raw_rows += len(norm_df)
+            all_dfs.append(norm_df)
+
+        except Exception as e:
+            logger.error(f"Error parsing file {file_path.name}: {e}")
+
+    if not all_dfs:
+        logger.warning("No valid records extracted from CSV files.")
+        return 0
+
+    # Combine all file records
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+
+    # Ascending Date Sorting
+    combined_df.sort_values(by="timestamp", ascending=True, inplace=True)
+
+    # Deduplicate in Pandas prior to database write (keep latest)
+    initial_count = len(combined_df)
+    combined_df.drop_duplicates(subset=["instrument_token", "timestamp"], keep="last", inplace=True)
+    dedup_count = initial_count - len(combined_df)
+
+    logger.info(
+        f"Aggregated {len(combined_df):,} distinct records across {len(csv_files)} files "
+        f"({total_zero_ohl_fixed:,} zero-OHL rows normalized, {dedup_count:,} duplicate timestamps resolved)."
+    )
+
+    # Register metadata for NIFTY 50
+    now = datetime.now()
+    min_date = combined_df["timestamp"].min()
+    max_date = combined_df["timestamp"].max()
+
+    conn.execute("""
+        INSERT OR REPLACE INTO instruments_meta (
+            instrument_token, exchange_token, tradingsymbol, name, exchange,
+            segment, instrument_type, tick_size, lot_size, last_synced_at
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )
+    """, [
+        instrument_token,
+        str(instrument_token),
+        symbol,
+        symbol,
+        exchange,
+        "INDICES",
+        "INDEX",
+        0.05,
+        50,
+        now
+    ])
+
+    # Direct native Pandas ingestion into DuckDB with primary key replacement
+    conn.register("df_nifty_import_stage", combined_df)
+    conn.execute("""
+        INSERT OR REPLACE INTO market_data (
+            symbol, exchange, instrument_token, timestamp,
+            open, high, low, close, volume, oi
+        )
+        SELECT 
+            symbol, exchange, instrument_token, timestamp,
+            open, high, low, close, volume, oi
+        FROM df_nifty_import_stage
+    """)
+    conn.unregister("df_nifty_import_stage")
+
+    logger.info(
+        f"[SUCCESS] Loaded {len(combined_df):,} records for '{symbol}' into DuckDB. "
+        f"Date range: {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}."
+    )
+
+    return len(combined_df)
 
 
 # ---------------------------------------------------------------------------
@@ -470,6 +664,12 @@ def main():
         default=DEFAULT_DUCKDB_FILENAME,
         help=f"Path to DuckDB database file (default: {DEFAULT_DUCKDB_FILENAME})."
     )
+    parser.add_argument(
+        "--import-nifty-dir",
+        type=str,
+        default=None,
+        help="Batch import and normalize a directory of historical Nifty 50 CSV files into DuckDB."
+    )
 
     args = parser.parse_args()
 
@@ -477,6 +677,12 @@ def main():
     conn = init_duckdb(args.db_path)
 
     if args.db_info:
+        print_database_summary(conn)
+        return
+
+    # Batch Nifty 50 folder import flow
+    if args.import_nifty_dir:
+        import_nifty_dir(conn, args.import_nifty_dir)
         print_database_summary(conn)
         return
 
