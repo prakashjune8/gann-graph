@@ -76,6 +76,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const highestPrice = useGridState((s) => s.highestPrice);
   // Strict canvas rendering guard: clamp pricePerUnit to physically valid range [0.01, 10000]
   const safePricePerUnit = Number.isFinite(pricePerUnit) && pricePerUnit > 0 && pricePerUnit <= 10000 ? pricePerUnit : 25.0;
+  const autoFitY = useGridState((s) => s.autoFitY);
+  const panHorizontal = useGridState((s) => s.panHorizontal);
   const panBy = useGridState((s) => s.panBy);
   const zoomAt = useGridState((s) => s.zoomAt);
   const updateCursor = useGridState((s) => s.updateCursor);
@@ -1419,11 +1421,19 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           break;
         case "ArrowLeft":
           e.preventDefault();
-          panBy(stepDistance, 0);
+          if (autoFitY) {
+            panHorizontal(stepDistance);
+          } else {
+            panBy(stepDistance, 0);
+          }
           break;
         case "ArrowRight":
           e.preventDefault();
-          panBy(-stepDistance, 0);
+          if (autoFitY) {
+            panHorizontal(-stepDistance);
+          } else {
+            panBy(-stepDistance, 0);
+          }
           break;
         default:
           break;
@@ -1434,12 +1444,13 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [panBy, majorUnit]);
+  }, [panBy, panHorizontal, autoFitY, majorUnit]);
 
   /**
    * WHEEL & TRACKPAD INPUT NORMALIZER
    * Native non-passive event listener prevents unwanted browser zooming and normalizes
    * high-precision trackpads vs. physical mouse wheels.
+   * Wires horizontal wheel/trackpad pan to panHorizontal (with autoFitY support).
    */
   useEffect(() => {
     const container = containerRef.current;
@@ -1451,6 +1462,21 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const cursorX = e.clientX - rect.left;
       const cursorY = e.clientY - rect.top;
 
+      const isHorizontalPan = Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey;
+      if (isHorizontalPan && !e.ctrlKey) {
+        const mult = e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? 100 : 1;
+        const rawDelta = e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const deltaX = -rawDelta * mult;
+        if (deltaX !== 0) {
+          if (autoFitY) {
+            panHorizontal(deltaX);
+          } else {
+            panBy(deltaX, 0);
+          }
+        }
+        return;
+      }
+
       const { zoomMultiplier } = normalizeWheelEvent(e);
       zoomAt(cursorX, cursorY, zoomMultiplier);
     };
@@ -1459,7 +1485,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     return () => {
       container.removeEventListener("wheel", handleNativeWheel);
     };
-  }, [zoomAt]);
+  }, [zoomAt, autoFitY, panHorizontal, panBy]);
 
   /**
    * MOUSE HANDLERS (Master Container Interaction Capture - Pre-Flight Patch 2)
@@ -1529,7 +1555,13 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       const deltaX = e.clientX - dragStartRef.current.x;
       const deltaY = e.clientY - dragStartRef.current.y;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
-      panBy(deltaX, deltaY);
+      if (autoFitY) {
+        if (deltaX !== 0) {
+          panHorizontal(deltaX);
+        }
+      } else {
+        panBy(deltaX, deltaY);
+      }
     }
   };
 

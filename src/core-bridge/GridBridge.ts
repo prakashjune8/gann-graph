@@ -66,6 +66,11 @@ export interface IGridBridge {
   };
 
   // Viewport & Navigation Command Dispatchers
+  autoFitY: boolean;
+  toggleAutoFitY(): void;
+  setAutoFitY(enabled: boolean): void;
+  panHorizontal(deltaX: number): void;
+  setPanX(targetPanX: number): void;
   setPan(pan: Point2D): void;
   panBy(deltaX: number, deltaY: number): void;
   zoomAt(screenX: number, screenY: number, delta: number): void;
@@ -92,7 +97,7 @@ export interface IGridBridge {
   setSwingPoints(points: SwingPoint[]): void;
   addSwingPoint(point: SwingPoint): void;
   calibratePriceScale(input: CandleData[] | number, maintainCenterPrice?: number): void;
-  fitViewportToActiveCandles(): void;
+  fitViewportToActiveCandles(overridePanX?: number): void;
   clearAllData(): void;
   loadSampleDataset(): void;
 
@@ -218,6 +223,26 @@ class CoreGridBridge implements IGridBridge {
   }
 
   // Viewport & Navigation Command Dispatchers
+  get autoFitY(): boolean {
+    return useGridState.getState().autoFitY;
+  }
+
+  toggleAutoFitY(): void {
+    useGridState.getState().toggleAutoFitY();
+  }
+
+  setAutoFitY(enabled: boolean): void {
+    useGridState.getState().setAutoFitY(enabled);
+  }
+
+  panHorizontal(deltaX: number): void {
+    useGridState.getState().panHorizontal(deltaX);
+  }
+
+  setPanX(targetPanX: number): void {
+    useGridState.getState().setPanX(targetPanX);
+  }
+
   setPan(pan: Point2D): void {
     useGridState.getState().setPan(pan);
   }
@@ -283,8 +308,8 @@ class CoreGridBridge implements IGridBridge {
     useGridState.getState().clearManualSeeds();
   }
 
-  fitViewportToActiveCandles(): void {
-    useGridState.getState().fitViewportToActiveCandles();
+  fitViewportToActiveCandles(overridePanX?: number): void {
+    useGridState.getState().fitViewportToActiveCandles(overridePanX);
   }
 
   // Data Pipeline Dispatchers

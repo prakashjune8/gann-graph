@@ -29,7 +29,7 @@ export const WaterFlowViewport: React.FC = () => {
   const showBottomAxis = useGridState((s) => s.showBottomAxis);
   const priceCeiling = useGridState((s) => s.priceCeiling);
   const highestPrice = useGridState((s) => s.highestPrice);
-  const setPan = useGridState((s) => s.setPan);
+  const setPanX = useGridState((s) => s.setPanX);
   const jumpToLatest = useGridState((s) => s.jumpToLatest);
 
   const streamRef = useRef<HTMLDivElement | null>(null);
@@ -107,9 +107,9 @@ export const WaterFlowViewport: React.FC = () => {
       if (!hasData) return;
       const targetCol = minCol + frac * totalColSpan;
       const targetPanX = Math.round(leftOffset + actualWidth / 2 - targetCol * baseUnit * zoom);
-      setPan({ x: targetPanX, y: pan.y });
+      setPanX(targetPanX);
     },
-    [hasData, minCol, totalColSpan, screenWidth, leftOffset, actualWidth, baseUnit, zoom, setPan, pan.y]
+    [hasData, minCol, totalColSpan, leftOffset, actualWidth, baseUnit, zoom, setPanX]
   );
 
   // Handle click on the river stream to jump
@@ -136,7 +136,7 @@ export const WaterFlowViewport: React.FC = () => {
       const deltaCol = deltaFrac * totalColSpan;
       const deltaWorldX = deltaCol * baseUnit * zoom;
       const newPanX = Math.round(initialPanXRef.current - deltaWorldX);
-      setPan({ x: newPanX, y: pan.y });
+      setPanX(newPanX);
     };
 
     const handleMouseUp = () => {

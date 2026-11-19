@@ -147,7 +147,14 @@ export interface GridState {
   highestSeed: ManualSeedPoint | null;
   activeSeedTool: "NONE" | "PICK_LOWEST" | "PICK_HIGHEST";
 
+  // Auto-Fit Y Mode: automatically scales and centers visible candles vertically during horizontal navigation
+  autoFitY: boolean;
+
   // Actions
+  toggleAutoFitY: () => void;
+  setAutoFitY: (enabled: boolean) => void;
+  panHorizontal: (deltaX: number) => void;
+  setPanX: (targetPanX: number) => void;
   setLowestSeed: (seed: ManualSeedPoint | null) => void;
   setHighestSeed: (seed: ManualSeedPoint | null) => void;
   setActiveSeedTool: (tool: "NONE" | "PICK_LOWEST" | "PICK_HIGHEST") => void;
@@ -177,7 +184,7 @@ export interface GridState {
   setPriceCeiling: (ceiling: number) => void;
   setVisiblePriceExtremes: (high: number, low: number) => void;
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => void;
-  fitViewportToActiveCandles: () => void;
+  fitViewportToActiveCandles: (overridePanX?: number) => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
   addSwingPoint: (point: SwingPoint) => void;
@@ -268,6 +275,43 @@ export const useGridState = create<GridState>((set, get) => ({
   highestSeed: null,
   activeSeedTool: "NONE",
 
+  autoFitY: true,
+
+  toggleAutoFitY: () => {
+    const nextVal = !get().autoFitY;
+    set({ autoFitY: nextVal });
+    if (nextVal) {
+      get().fitViewportToActiveCandles();
+    }
+  },
+
+  setAutoFitY: (enabled: boolean) => {
+    set({ autoFitY: enabled });
+    if (enabled) {
+      get().fitViewportToActiveCandles();
+    }
+  },
+
+  panHorizontal: (deltaX: number) => {
+    const { pan, autoFitY, fitViewportToActiveCandles, setPan } = get();
+    const nextPanX = Math.round(pan.x + deltaX);
+    if (autoFitY) {
+      fitViewportToActiveCandles(nextPanX);
+    } else {
+      setPan({ x: nextPanX, y: pan.y });
+    }
+  },
+
+  setPanX: (targetPanX: number) => {
+    const { pan, autoFitY, fitViewportToActiveCandles, setPan } = get();
+    const nextPanX = Math.round(targetPanX);
+    if (autoFitY) {
+      fitViewportToActiveCandles(nextPanX);
+    } else {
+      setPan({ x: nextPanX, y: pan.y });
+    }
+  },
+
   setLowestSeed: (seed) => set({ lowestSeed: seed }),
   setHighestSeed: (seed) => set({ highestSeed: seed }),
   setActiveSeedTool: (tool) => set({ activeSeedTool: tool }),
@@ -349,7 +393,12 @@ export const useGridState = create<GridState>((set, get) => ({
     const futureBuffer = 3.5 * majorUnit * zoom + rightRulerOffset;
 
     const latestWorldX = maxCol * baseUnit;
-    const targetPanX = viewportWidth - futureBuffer - latestWorldX * zoom;
+    const targetPanX = Math.round(viewportWidth - futureBuffer - latestWorldX * zoom);
+
+    if (get().autoFitY) {
+      get().fitViewportToActiveCandles(targetPanX);
+      return;
+    }
 
     let targetPanY = get().pan.y;
     if (latestCandle) {
@@ -362,7 +411,7 @@ export const useGridState = create<GridState>((set, get) => ({
 
     set({
       pan: {
-        x: Math.round(targetPanX),
+        x: targetPanX,
         y: Math.round(targetPanY),
       },
     });
@@ -494,7 +543,7 @@ export const useGridState = create<GridState>((set, get) => ({
     set(updates);
   },
 
-  fitViewportToActiveCandles: () => {
+  fitViewportToActiveCandles: (overridePanX?: number) => {
     const {
       candles,
       pan,
@@ -508,13 +557,14 @@ export const useGridState = create<GridState>((set, get) => ({
 
     if (!candles || candles.length === 0) return;
 
+    const currentPanX = overridePanX !== undefined ? overridePanX : pan.x;
     const screenW = screenWidth || (typeof window !== "undefined" ? window.innerWidth : 1440);
     const screenH = screenHeight || (typeof window !== "undefined" ? window.innerHeight : 900);
     const zoomVal = typeof zoom === "number" ? zoom : ((zoom as any).y ?? 1.0);
 
-    // 1. Calculate active horizontal column bounds from current pan & zoom
-    const leftWorldX = (0 - pan.x) / zoomVal;
-    const rightWorldX = (screenW - pan.x) / zoomVal;
+    // 1. Calculate active horizontal column bounds from target pan.x & zoom
+    const leftWorldX = (0 - currentPanX) / zoomVal;
+    const rightWorldX = (screenW - currentPanX) / zoomVal;
     const minVisCol = Math.min(leftWorldX, rightWorldX) / baseUnit;
     const maxVisCol = Math.max(leftWorldX, rightWorldX) / baseUnit;
 
@@ -551,6 +601,9 @@ export const useGridState = create<GridState>((set, get) => ({
     }
 
     if (!Number.isFinite(localMinLow) || !Number.isFinite(localMaxHigh) || localMaxHigh <= 0) {
+      if (overridePanX !== undefined) {
+        set({ pan: { x: currentPanX, y: pan.y } });
+      }
       return;
     }
 
@@ -609,7 +662,7 @@ export const useGridState = create<GridState>((set, get) => ({
       visibleHighestPrice: localMaxHigh,
       visibleLowestPrice: localMinLow,
       pan: {
-        x: pan.x,
+        x: currentPanX,
         y: targetPanY,
       },
     });

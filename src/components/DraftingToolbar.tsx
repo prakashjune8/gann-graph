@@ -49,6 +49,8 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const setActiveSeedTool = useGridState((s) => s.setActiveSeedTool);
   const clearManualSeeds = useGridState((s) => s.clearManualSeeds);
   const hasCandles = useGridState((s) => s.candles.length > 0);
+  const autoFitY = useGridState((s) => s.autoFitY);
+  const toggleAutoFitY = useGridState((s) => s.toggleAutoFitY);
 
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [lowestDateInput, setLowestDateInput] = useState("");
@@ -801,6 +803,23 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           title="Jump to Latest (Auto-Center with Future Space Buffer)"
         >
           ▶ Latest
+        </button>
+        <button
+          onClick={toggleAutoFitY}
+          style={{
+            ...buttonStyle,
+            backgroundColor: autoFitY ? "#E8F5E9" : "transparent",
+            borderColor: autoFitY ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+            color: autoFitY ? "#1B5E20" : "#555",
+            fontWeight: autoFitY ? "bold" : "normal",
+          }}
+          title={
+            autoFitY
+              ? "Auto-Fit Y is ON: Visible candles automatically scaled and centered vertically during horizontal slide/pan. Click to disable for free manual vertical panning."
+              : "Auto-Fit Y is OFF: Free manual vertical panning enabled. Click to enable visible-candle auto-fit."
+          }
+        >
+          {autoFitY ? "✓ Auto-Fit Y" : "Auto-Fit Y"}
         </button>
       </div>
 
