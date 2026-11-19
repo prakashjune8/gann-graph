@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { GannCanvas } from "./components/GannCanvas";
 import { DraftingToolbar } from "./components/DraftingToolbar";
 import { CoordinateOverlay } from "./components/CoordinateOverlay";
+import { WaterFlowViewport } from "./components/WaterFlowViewport";
 import { VaultBackupModal } from "./components/VaultBackupModal";
 import { MissingVaultModal } from "./components/MissingVaultModal";
 import { getVaultStatus, VaultStatus } from "./utils/vaultBridge";
@@ -64,6 +65,9 @@ export const App: React.FC = () => {
       <GannCanvas
         showGannRay45={showGannRay}
       />
+
+      {/* Water-Flow Viewport Stream Indicator */}
+      <WaterFlowViewport />
 
       {/* Bottom Floating Live Coordinate HUD */}
       <CoordinateOverlay />

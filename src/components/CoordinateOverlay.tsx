@@ -25,7 +25,7 @@ export const CoordinateOverlay: React.FC = () => {
     <div
       style={{
         position: "absolute",
-        bottom: showBottomAxis ? 42 : 14,
+        bottom: showBottomAxis ? 62 : 30,
         left: showLeftAxis ? 96 : 14,
         transition: "bottom 0.2s ease, left 0.2s ease",
         backgroundColor: "rgba(247, 246, 240, 0.95)",

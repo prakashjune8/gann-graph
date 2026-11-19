@@ -33,6 +33,9 @@ export interface IGridBridge {
   getBasePrice(): number;
   getPricePerUnit(): number;
   getTimePerUnit(): string;
+  getPriceCeiling(): number;
+  getHighestPrice(): number;
+  getLowestPrice(): number;
   getCandles(): readonly CandleData[];
   getSwingPoints(): readonly SwingPoint[];
   getChartMode(): ChartDisplayMode;
@@ -132,6 +135,18 @@ class CoreGridBridge implements IGridBridge {
 
   getTimePerUnit(): string {
     return useGridState.getState().timePerUnit;
+  }
+
+  getPriceCeiling(): number {
+    return useGridState.getState().priceCeiling;
+  }
+
+  getHighestPrice(): number {
+    return useGridState.getState().highestPrice;
+  }
+
+  getLowestPrice(): number {
+    return useGridState.getState().lowestPrice;
   }
 
   getCandles(): readonly CandleData[] {

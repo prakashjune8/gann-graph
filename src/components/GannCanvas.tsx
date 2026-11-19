@@ -72,6 +72,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const swingPoints = useGridState((s) => s.swingPoints);
   const basePrice = useGridState((s) => s.basePrice);
   const pricePerUnit = useGridState((s) => s.pricePerUnit);
+  const priceCeiling = useGridState((s) => s.priceCeiling);
+  const highestPrice = useGridState((s) => s.highestPrice);
   // Strict canvas rendering guard: clamp pricePerUnit to physically valid range [0.01, 10000]
   const safePricePerUnit = Number.isFinite(pricePerUnit) && pricePerUnit > 0 && pricePerUnit <= 10000 ? pricePerUnit : 25.0;
   const panBy = useGridState((s) => s.panBy);
@@ -624,6 +626,50 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
+    // 4.5. Dynamic +10% Upper Ceiling & Headroom Guideline
+    // Sets the upper price scale bound to maxHigh * 1.10 and dynamically elongates whenever a new high is made.
+    if (candles.length > 0 && priceCeiling > 0) {
+      const ceilingWorldY = priceToWorldY(priceCeiling);
+      const ceilingScreenPos = worldToScreen(0, ceilingWorldY);
+      const ceilingScreenY = Math.round(ceilingScreenPos.y) + 0.5;
+
+      if (ceilingScreenY >= -40 && ceilingScreenY <= height + 40) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(180, 50, 40, 0.70)";
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([8, 4]);
+
+        const drawLeft = showLeftAxis ? 84 : 0;
+        const drawRight = width - (showRightAxis ? 88 : 0);
+
+        ctx.beginPath();
+        ctx.moveTo(drawLeft, ceilingScreenY);
+        ctx.lineTo(drawRight, ceilingScreenY);
+        ctx.stroke();
+
+        // Architectural Ceiling Badge Pill
+        ctx.setLineDash([]);
+        const ceilingText = `▲ +10% DYNAMIC CEILING: \u20B9${priceCeiling.toLocaleString("en-IN")} (HIGH: \u20B9${(highestPrice || 0).toLocaleString("en-IN")})`;
+        ctx.font = "bold 9px 'Courier New', monospace";
+        const textWidth = ctx.measureText(ceilingText).width;
+        const badgeWidth = textWidth + 14;
+        const badgeX = drawRight - badgeWidth - 12;
+        const badgeY = ceilingScreenY - 15;
+
+        ctx.fillStyle = "rgba(255, 245, 245, 0.92)";
+        ctx.fillRect(badgeX, badgeY, badgeWidth, 13);
+        ctx.strokeStyle = "rgba(180, 50, 40, 0.55)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(badgeX, badgeY, badgeWidth, 13);
+
+        ctx.fillStyle = "#B71C1C";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(ceilingText, badgeX + 6, badgeY + 6.5);
+        ctx.restore();
+      }
+    }
+
     // 5. Lightweight Empty State Prompt (Active when vault is empty and no CSV is loaded)
     if (candles.length === 0) {
       ctx.save();
@@ -666,6 +712,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     swingPoints,
     basePrice,
     pricePerUnit,
+    priceCeiling,
+    highestPrice,
     priceToWorldY,
     worldToScreen,
   ]);

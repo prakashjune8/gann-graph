@@ -158,14 +158,9 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
       const safeScale = Math.min(1000, Math.max(0.1, translatedPPU));
 
       lockedScale = safeScale;
-      if (gapLockActive) {
-        // Macro-Scale Override: Widen temporary lock boundaries to +/- 10%
-        lockedUpperBoundary = visibleMaxPrice * 1.10;
-        lockedLowerBoundary = visibleMinPrice * 0.90;
-      } else {
-        lockedUpperBoundary = visibleMaxPrice;
-        lockedLowerBoundary = visibleMinPrice;
-      }
+      // Dynamic +10% Upper Ceiling Headroom: Always maintain headroom above the highest visible price
+      lockedUpperBoundary = visibleMaxPrice * 1.10;
+      lockedLowerBoundary = Math.max(0, gapLockActive ? visibleMinPrice * 0.90 : visibleMinPrice);
 
       const currentScale = bridge.getPricePerUnit();
       if (Math.abs(currentScale - lockedScale) > 0.0001) {

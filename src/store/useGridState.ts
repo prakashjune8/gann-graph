@@ -135,6 +135,11 @@ export interface GridState {
   swingPoints: SwingPoint[];
   patternCount: number; // Memoized count of flagged candlestick patterns (Audit 3.3)
 
+  // Dynamic Price Ceiling & Headroom (+10% above highest price)
+  highestPrice: number;
+  lowestPrice: number;
+  priceCeiling: number; // Dynamic +10% Upper Ceiling (maxHigh * 1.10)
+
   // Actions
   setPan: (pan: Point2D) => void;
   panBy: (deltaX: number, deltaY: number) => void;
@@ -158,6 +163,7 @@ export interface GridState {
 
   // Data Actions
   setTimePerUnit: (timePerUnit: string) => void;
+  setPriceCeiling: (ceiling: number) => void;
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
@@ -238,6 +244,10 @@ export const useGridState = create<GridState>((set, get) => ({
   candles: [],
   swingPoints: [],
   patternCount: 0,
+
+  highestPrice: 22520,
+  lowestPrice: 21380,
+  priceCeiling: 24772, // 22520 * 1.10 (+10% Headroom)
 
   setPan: (pan) =>
     set({
@@ -361,6 +371,7 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
 
   setTimePerUnit: (timePerUnit) => set({ timePerUnit }),
+  setPriceCeiling: (ceiling) => set({ priceCeiling: Math.max(0, ceiling) }),
 
   // Gann Harmonic Auto-Scale Calibrator (Sprint 1 & Auto-Scale V2 Anchor Patch)
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => {
@@ -427,9 +438,17 @@ export const useGridState = create<GridState>((set, get) => ({
     const harmonicBlock = closestHarmonic * 8;
     const calculatedBasePrice = Math.max(0, Math.floor(minPrice / harmonicBlock) * harmonicBlock);
 
+    const safeLowest = Math.max(0, Number.isFinite(minPrice) ? minPrice : 0);
+    const safeHighest = maxPrice;
+    // Dynamic +10% Upper Ceiling
+    const dynamicPriceCeiling = Math.round(safeHighest * 1.10 * 100) / 100;
+
     const updates: Partial<GridState> = {
       pricePerUnit: closestHarmonic,
       basePrice: calculatedBasePrice,
+      highestPrice: safeHighest,
+      lowestPrice: safeLowest,
+      priceCeiling: dynamicPriceCeiling,
     };
 
     if (maintainCenterPrice !== undefined && Number.isFinite(maintainCenterPrice)) {
@@ -447,18 +466,48 @@ export const useGridState = create<GridState>((set, get) => ({
   },
 
   setCandles: (candles) => {
+    let maxPrice = -Infinity;
+    let minPrice = Infinity;
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i];
+      if (c.high > maxPrice) maxPrice = c.high;
+      if (c.low < minPrice) minPrice = c.low;
+    }
     if (candles.length > 0) {
       get().calibratePriceScale(candles);
     }
     const count = candles.filter((c) => c.pattern).length;
-    set({ candles, patternCount: count });
+    const updates: Partial<GridState> = { candles, patternCount: count };
+    if (Number.isFinite(maxPrice) && maxPrice > 0) {
+      const currentHighest = get().highestPrice;
+      const effectiveHigh = Math.max(maxPrice, currentHighest || 0);
+      updates.highestPrice = effectiveHigh;
+      updates.lowestPrice = Math.max(0, minPrice);
+      updates.priceCeiling = Math.round(effectiveHigh * 1.10 * 100) / 100;
+    }
+    set(updates);
   },
   setDataset: (candles) => {
+    let maxPrice = -Infinity;
+    let minPrice = Infinity;
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i];
+      if (c.high > maxPrice) maxPrice = c.high;
+      if (c.low < minPrice) minPrice = c.low;
+    }
     if (candles.length > 0) {
       get().calibratePriceScale(candles);
     }
     const count = candles.filter((c) => c.pattern).length;
-    set({ candles, patternCount: count });
+    const updates: Partial<GridState> = { candles, patternCount: count };
+    if (Number.isFinite(maxPrice) && maxPrice > 0) {
+      const currentHighest = get().highestPrice;
+      const effectiveHigh = Math.max(maxPrice, currentHighest || 0);
+      updates.highestPrice = effectiveHigh;
+      updates.lowestPrice = Math.max(0, minPrice);
+      updates.priceCeiling = Math.round(effectiveHigh * 1.10 * 100) / 100;
+    }
+    set(updates);
   },
   addSwingPoint: (point) => set((s) => ({ swingPoints: [...s.swingPoints, point] })),
   setSwingPoints: (points) => set({ swingPoints: points }),
@@ -509,7 +558,7 @@ export const useGridState = create<GridState>((set, get) => ({
   worldYToPrice: (worldY: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
     const safeDivisor = Math.min(10000, Math.max(0.0001, pricePerUnit));
-    return basePrice + (worldY / baseUnit) * safeDivisor;
+    return Math.max(0, basePrice + (worldY / baseUnit) * safeDivisor);
   },
 
   // Alias for worldYToPrice
