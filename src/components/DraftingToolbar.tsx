@@ -288,9 +288,9 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           )}
         </select>
 
-        {/* Timeframe Buttons (1D, 1W, 1M) */}
+        {/* Timeframe Buttons (1D, 1W, 1M, 15m, 5m, 1m) */}
         <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-          {(["1D", "1W", "1M"] as DisplayTimeframe[]).map((tf) => {
+          {(["1D", "1W", "1M", "15m", "5m", "1m"] as DisplayTimeframe[]).map((tf) => {
             const isActive = coordinatorState.activeTimeframe === tf;
             return (
               <button

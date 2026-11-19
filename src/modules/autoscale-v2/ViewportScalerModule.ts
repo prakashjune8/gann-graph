@@ -126,7 +126,8 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
     isRecalibrating = true;
 
     // Fetch Master Genesis Vibration from HistoricSeedEngine (geometric slope points/col)
-    const genesis = extractGenesisNodes(candles as any);
+    // Adapting lookback dynamically based on active timeframe
+    const genesis = extractGenesisNodes(candles as any, bridge.getTimePerUnit());
     const seedPrice = genesis.atlNode.price > 0 ? genesis.atlNode.price : visibleMinPrice;
     const baseVibration =
       genesis.bullGenesisVelocity > 0 && Number.isFinite(genesis.bullGenesisVelocity)

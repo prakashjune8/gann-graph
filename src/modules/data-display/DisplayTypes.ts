@@ -8,7 +8,7 @@
 
 import { CandleData, SwingPoint } from "../../types/gann";
 
-export type DisplayTimeframe = "1D" | "1W" | "1M" | "60m" | "15m" | "5m";
+export type DisplayTimeframe = "1D" | "1W" | "1M" | "60m" | "15m" | "5m" | "1m";
 
 export interface RawMarketBar {
   timestamp: string | number;

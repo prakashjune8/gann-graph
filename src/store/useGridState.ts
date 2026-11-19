@@ -157,6 +157,7 @@ export interface GridState {
   toggleCrosshair: () => void;
 
   // Data Actions
+  setTimePerUnit: (timePerUnit: string) => void;
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
@@ -358,6 +359,8 @@ export const useGridState = create<GridState>((set, get) => ({
   toggleRightAxis: () => set((s) => ({ showRightAxis: !s.showRightAxis })),
   toggleAxisTransparency: () => set((s) => ({ isAxisTransparent: !s.isAxisTransparent })),
   toggleCrosshair: () => set((s) => ({ showCrosshair: !s.showCrosshair })),
+
+  setTimePerUnit: (timePerUnit) => set({ timePerUnit }),
 
   // Gann Harmonic Auto-Scale Calibrator (Sprint 1 & Auto-Scale V2 Anchor Patch)
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => {

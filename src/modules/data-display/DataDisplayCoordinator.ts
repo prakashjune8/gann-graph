@@ -110,6 +110,7 @@ class DataDisplayCoordinatorEngine {
     }
 
     // 2. Dispatch to central Zustand store
+    gridStore.setTimePerUnit(timeframe);
     gridStore.setCandles(candles);
     gridStore.setSwingPoints(swings);
 
@@ -206,9 +207,9 @@ class DataDisplayCoordinatorEngine {
       // 2. K&E 8x8 Grid Formatting with True Natural Calendar Time
       const displayCandles = formatBarsForDisplay(aggregatedBars, timeframe, request.columnSpacing || 2);
 
-      // 3. Gann 2-bar swing pivots
+      // 3. Gann swing pivots (fractal lookback parity with autoscale-v2)
       const gridStore = useGridState.getState();
-      const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit);
+      const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit, timeframe);
 
       // 4. Dispatch to chart
       return this.dispatchToChart(
@@ -275,9 +276,9 @@ class DataDisplayCoordinatorEngine {
       // 2. Format for display
       const displayCandles = formatBarsForDisplay(aggregatedBars, timeframe, request.columnSpacing || 2);
 
-      // 3. Extract swings
+      // 3. Extract swings (fractal lookback parity)
       const gridStore = useGridState.getState();
-      const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit);
+      const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit, timeframe);
 
       // 4. Dispatch
       return this.dispatchToChart(
@@ -406,7 +407,7 @@ class DataDisplayCoordinatorEngine {
     const aggregatedBars = aggregateMarketBars(this.state.rawBars, newTimeframe);
     const displayCandles = formatBarsForDisplay(aggregatedBars, newTimeframe);
     const gridStore = useGridState.getState();
-    const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit);
+    const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit, newTimeframe);
 
     return this.dispatchToChart(
       this.state.activeSymbol,

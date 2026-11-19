@@ -269,9 +269,13 @@ export function validateSeed(
  * and validates the mathematical "Proof of the Seed".
  *
  * @param fullDataset Full array of historical candlestick data
+ * @param timeframe Active display timeframe (e.g. "1D", "15m", "5m", "1m") for fractal swing detection
  * @returns GenesisExtractionResult containing all Genesis nodes, proof reports, and Rule of 8 grids
  */
-export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractionResult {
+export function extractGenesisNodes(
+  fullDataset: CandleData[],
+  timeframe: string = "1D"
+): GenesisExtractionResult {
   if (!fullDataset || fullDataset.length === 0) {
     const dummyNode: GenesisNode = {
       col: 0,
@@ -360,10 +364,10 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
     velocityFromAnchor: 0,
   };
 
-  // 2. BULL SEED: Slice from ATL forward. Run detectGannSwings(..., 3).
+  // 2. BULL SEED: Slice from ATL forward. Run detectGannSwings(..., timeframe).
   // Extract first 3 subsequent Higher Lows (LL nodes with prices > ATL).
   const bullSlice = fullDataset.slice(atlIdx);
-  const bullSwings = detectGannSwings(bullSlice, 3);
+  const bullSwings = detectGannSwings(bullSlice, timeframe);
   // Filter for valid Higher Lows (LL nodes with price > ATL.price)
   const candidateLows = bullSwings.filter((s) => s.type === "LL" && s.price > atlNode.price);
 
@@ -387,10 +391,10 @@ export function extractGenesisNodes(fullDataset: CandleData[]): GenesisExtractio
     });
   }
 
-  // 3. BEAR SEED: Slice from ATH forward. Run detectGannSwings(..., 3).
+  // 3. BEAR SEED: Slice from ATH forward. Run detectGannSwings(..., timeframe).
   // Extract first 3 subsequent Lower Highs (HH nodes with prices < ATH).
   const bearSlice = fullDataset.slice(athIdx);
-  const bearSwings = detectGannSwings(bearSlice, 3);
+  const bearSwings = detectGannSwings(bearSlice, timeframe);
   const candidateHighs = bearSwings.filter((s) => s.type === "HH" && s.price < athNode.price);
 
   const bearNodes: GenesisNode[] = [];

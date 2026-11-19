@@ -57,6 +57,9 @@ export function aggregateMarketBars(
     } else if (targetTimeframe === "5m") {
       const bucketMs = Math.floor(epochMs / 300000) * 300000;
       groupKey = String(bucketMs);
+    } else if (targetTimeframe === "1m") {
+      const bucketMs = Math.floor(epochMs / 60000) * 60000;
+      groupKey = String(bucketMs);
     } else {
       groupKey = String(epochMs);
     }

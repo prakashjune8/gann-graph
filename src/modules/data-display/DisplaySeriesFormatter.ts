@@ -12,6 +12,7 @@
 import { CandleData, SwingPoint } from "../../types/gann";
 import { RawMarketBar, DisplayTimeframe } from "./DisplayTypes";
 import { identifyCandlestickPatterns } from "../../utils/brokerCsvParser";
+import { detectGannSwings } from "../autoscale-v2/SwingDetector";
 
 /**
  * Parses diverse date representations (DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, ISO, epoch ms)
@@ -132,6 +133,7 @@ export function formatBarsForDisplay(
   else if (timeframe === "60m") intervalMs = 3600000;
   else if (timeframe === "15m") intervalMs = 900000;
   else if (timeframe === "5m") intervalMs = 300000;
+  else if (timeframe === "1m") intervalMs = 60000;
 
   const rawCandles: CandleData[] = normalized.map((bar, idx) => {
     let gridCol = idx * columnSpacing;
@@ -162,19 +164,36 @@ export function formatBarsForDisplay(
 }
 
 /**
- * Extracts Gann 2-Bar Swing Indicator Points and locks them to discrete
- * K&E grid coordinates.
+ * Extracts Gann Swing Indicator Points adapted to the active timeframe
+ * and locks them to discrete K&E grid coordinates.
+ * Achieves 100% mathematical parity with autoscale-v2 swing detection.
  */
 export function extractDisplaySwings(
   candles: CandleData[],
   basePrice: number,
-  pricePerGridUnit: number = 25.0
+  pricePerGridUnit: number = 25.0,
+  timeframe: DisplayTimeframe = "1D"
 ): SwingPoint[] {
-  if (candles.length < 2) return [];
+  if (!candles || candles.length < 2) return [];
 
   const safePPU = Math.max(0.0001, pricePerGridUnit > 0 ? pricePerGridUnit : 25.0);
-  const swings: SwingPoint[] = [];
 
+  // 1. Try fractal Gann swing detection with exact mathematical parity to autoscale-v2
+  const gannNodes = detectGannSwings(candles, timeframe);
+  if (gannNodes && gannNodes.length > 0) {
+    return gannNodes.map((node, idx) => ({
+      id: `disp-sw-${node.type.toLowerCase()}-${idx + 1}`,
+      timeStr: node.date,
+      price: node.price,
+      gridCol: node.col,
+      gridRow: Math.round((node.price - basePrice) / safePPU),
+      type: node.type === "HH" ? "SWING_HIGH" : "SWING_LOW",
+      label: `${node.type === "HH" ? "H" : "L"}${idx + 1}`,
+    }));
+  }
+
+  // 2. Fallback to 2-Bar Swing Indicator for very short datasets
+  const swings: SwingPoint[] = [];
   let isUpTrend: boolean | null = null;
   let extremeBar = candles[0];
 

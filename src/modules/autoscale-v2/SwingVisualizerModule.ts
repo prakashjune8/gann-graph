@@ -20,8 +20,8 @@ function registerSwingOverlay(bridge: IGridBridge): () => void {
     const candles = b.getCandles();
     if (!candles || candles.length < 7) return;
 
-    // Detect 3-day mechanical Gann swings
-    const swings: SwingNode[] = detectGannSwings(candles as any, 3);
+    // Detect mechanical Gann swings dynamically adapted to timeframe
+    const swings: SwingNode[] = detectGannSwings(candles as any, b.getTimePerUnit());
     if (swings.length === 0) return;
 
     ctx.save();
