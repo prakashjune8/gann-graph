@@ -14,7 +14,7 @@ if (typeof window !== "undefined") {
 }
 
 // Generates rich sample multi-session data with classic Japanese candlestick patterns & swing pivots
-function generateSampleCandleDataset(basePrice = 21500, pricePerUnit = 25.0): {
+function generateSampleCandleDataset(basePrice = 0, pricePerUnit = 25.0): {
   candles: CandleData[];
   swings: SwingPoint[];
 } {
@@ -257,7 +257,7 @@ export const useGridState = create<GridState>((set, get) => ({
   screenWidth: typeof window !== "undefined" ? window.innerWidth : 1440,
   screenHeight: typeof window !== "undefined" ? window.innerHeight : 900,
 
-  basePrice: 21500,
+  basePrice: 0,
   pricePerUnit: 25.0,
   timePerUnit: "1 Day",
 
@@ -457,13 +457,13 @@ export const useGridState = create<GridState>((set, get) => ({
       if (Number.isFinite(input) && input > 0) {
         // Hard clamping guard: Prevent any scale explosion (standard equity/index scale is 0.1 to 1000)
         const newScale = Math.min(10000, Math.max(0.01, input));
-        const { pan, zoom, baseUnit, basePrice, screenHeight } = get();
+        const { pan, zoom, baseUnit, screenHeight } = get();
         const updates: Partial<GridState> = { pricePerUnit: newScale };
 
         if (maintainCenterPrice !== undefined && Number.isFinite(maintainCenterPrice)) {
           const zoomVal = typeof zoom === "number" ? zoom : ((zoom as any).y ?? 1.0);
           const safeDivisor = Math.max(0.0001, newScale);
-          const newWorldY = ((maintainCenterPrice - basePrice) / safeDivisor) * baseUnit;
+          const newWorldY = (maintainCenterPrice / safeDivisor) * baseUnit;
           const canvasH = screenHeight || (typeof window !== "undefined" ? window.innerHeight : 900);
           const centerY = canvasH / 2;
           const newPanY = Math.round(centerY + newWorldY * zoomVal);
@@ -512,10 +512,6 @@ export const useGridState = create<GridState>((set, get) => ({
       }
     }
 
-    // Cleanly anchor basePrice to the nearest major 1-inch block (8 minor squares) below minPrice
-    const harmonicBlock = closestHarmonic * 8;
-    const calculatedBasePrice = Math.max(0, Math.floor(minPrice / harmonicBlock) * harmonicBlock);
-
     const safeLowest = Math.max(0, Number.isFinite(minPrice) ? minPrice : 0);
     const safeHighest = maxPrice;
     // Dynamic +10% Upper Ceiling
@@ -523,7 +519,7 @@ export const useGridState = create<GridState>((set, get) => ({
 
     const updates: Partial<GridState> = {
       pricePerUnit: closestHarmonic,
-      basePrice: calculatedBasePrice,
+      basePrice: 0,
       highestPrice: safeHighest,
       lowestPrice: safeLowest,
       priceCeiling: dynamicPriceCeiling,
@@ -533,7 +529,7 @@ export const useGridState = create<GridState>((set, get) => ({
       const { pan, zoom, baseUnit, screenHeight } = get();
       const zoomVal = typeof zoom === "number" ? zoom : ((zoom as any).y ?? 1.0);
       const safeDivisor = Math.max(0.0001, closestHarmonic);
-      const newWorldY = ((maintainCenterPrice - calculatedBasePrice) / safeDivisor) * baseUnit;
+      const newWorldY = (maintainCenterPrice / safeDivisor) * baseUnit;
       const canvasH = screenHeight || (typeof window !== "undefined" ? window.innerHeight : 900);
       const centerY = canvasH / 2;
       const newPanY = Math.round(centerY + newWorldY * zoomVal);
@@ -641,23 +637,16 @@ export const useGridState = create<GridState>((set, get) => ({
     }
     safeScale = Math.min(10000, Math.max(0.01, safeScale));
 
-    // 5. Anchor basePrice cleanly to major 1-inch block just below localMinLow
-    // Avoids forcing distant baseline near zero when candles sit in higher price bands
-    const harmonicBlock = safeScale * 8;
-    const calculatedBasePrice = Math.max(
-      0,
-      Math.floor((localMinLow - harmonicBlock * 0.5) / harmonicBlock) * harmonicBlock
-    );
-
-    // 6. Vertical centering: midpoint of [localCeiling, localMinLow] aligns with canvas vertical center
+    // 5. Origin is locked permanently at (0, 0) with basePrice = 0
+    // Vertical centering: midpoint of [localCeiling, localMinLow] aligns with canvas vertical center
     const centerPrice = (localCeiling + localMinLow) / 2;
     const centerY = (screenH + topOffset - bottomOffset) / 2;
-    const centerWorldY = ((centerPrice - calculatedBasePrice) / safeScale) * baseUnit;
+    const centerWorldY = (centerPrice / safeScale) * baseUnit;
     const targetPanY = Math.round(centerY + centerWorldY * zoomVal);
 
     set({
       pricePerUnit: safeScale,
-      basePrice: calculatedBasePrice,
+      basePrice: 0,
       priceCeiling: localCeiling,
       visibleHighestPrice: localMaxHigh,
       visibleLowestPrice: localMinLow,
@@ -730,7 +719,7 @@ export const useGridState = create<GridState>((set, get) => ({
     if (candles && candles.length > 0) {
       get().calibratePriceScale(candles);
     } else {
-      set({ pricePerUnit: 25.0, basePrice: 21500 });
+      set({ pricePerUnit: 25.0, basePrice: 0 });
     }
   },
 
@@ -756,14 +745,14 @@ export const useGridState = create<GridState>((set, get) => ({
   priceToWorldY: (price: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
     const safeDivisor = Math.min(10000, Math.max(0.0001, pricePerUnit));
-    return ((price - basePrice) / safeDivisor) * baseUnit;
+    return ((price - (basePrice || 0)) / safeDivisor) * baseUnit;
   },
 
   // World Y (in pixels) -> Price (in Rupees)
   worldYToPrice: (worldY: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
     const safeDivisor = Math.min(10000, Math.max(0.0001, pricePerUnit));
-    return Math.max(0, basePrice + (worldY / baseUnit) * safeDivisor);
+    return Math.max(0, (basePrice || 0) + (worldY / baseUnit) * safeDivisor);
   },
 
   // Alias for worldYToPrice

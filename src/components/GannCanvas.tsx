@@ -263,7 +263,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       ctx.fillStyle = "rgba(42, 75, 62, 0.75)";
       ctx.font = "bold 10px 'Courier New', monospace";
-      ctx.fillText(`0,0 (BASE \u20B9${basePrice})`, axisX + 7, axisY - 6);
+      ctx.fillText("0,0 (\u20B90)", axisX + 7, axisY - 6);
     }
 
     // 3. Gann 1x1 (45-Degree) True Diagonal Ray
@@ -484,7 +484,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         if (chartMode === "SWING_STEP") {
           ctx.fillStyle = "#1E2A24";
           ctx.font = "600 10px 'Courier New', monospace";
-          const dynamicRow = Math.round((pt.price - basePrice) / safePricePerUnit);
+          const dynamicRow = Math.round((pt.price - (basePrice || 0)) / safePricePerUnit);
           const tag = `[${pt.gridCol},${dynamicRow}] \u20B9${pt.price.toLocaleString("en-IN")}`;
           const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
           ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
@@ -805,7 +805,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.stroke();
 
         if (isMajor) {
-          const priceVal = basePrice + row * safePricePerUnit;
+          const priceVal = Math.max(0, (basePrice || 0) + row * safePricePerUnit);
           const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
@@ -850,7 +850,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         ctx.stroke();
 
         if (isMajor) {
-          const priceVal = basePrice + row * safePricePerUnit;
+          const priceVal = Math.max(0, (basePrice || 0) + row * safePricePerUnit);
           const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
           const inchStr = `${row / subdivisions}"`;
 
@@ -1059,7 +1059,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       return;
     }
 
-    const snappedPrice = basePrice + cursorGrid.row * safePricePerUnit;
+    const snappedPrice = Math.max(0, (basePrice || 0) + cursorGrid.row * safePricePerUnit);
 
     const leftRulerWidth = showLeftAxis ? 84 : 0;
     const rightRulerWidth = showRightAxis ? 88 : 0;
