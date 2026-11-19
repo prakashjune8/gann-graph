@@ -17,7 +17,7 @@ import { extractGenesisNodes } from "./HistoricSeedEngine";
 import { getExpandedVibration } from "./OctaveMultiplier";
 import { velocityToPricePerUnit } from "./PixelTranslator";
 
-let isScalerActive = true;
+let isScalerActive = false;
 let lockedScale: number | null = null;
 let lockedMultiplier: number | null = null;
 let lockedUpperBoundary = 0;
@@ -130,9 +130,17 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
     isRecalibrating = true;
 
     // Fetch Master Genesis Vibration from HistoricSeedEngine (geometric slope points/col)
-    // Adapting lookback dynamically based on active timeframe
-    const genesis = extractGenesisNodes(candles as any, bridge.getTimePerUnit());
-    const seedPrice = genesis.atlNode.price > 0 ? genesis.atlNode.price : visibleMinPrice;
+    // Adapting lookback dynamically based on active timeframe and manual seeds
+    const lowestSeed = bridge.getLowestSeed();
+    const highestSeed = bridge.getHighestSeed();
+    const genesis = extractGenesisNodes(
+      candles as any,
+      bridge.getTimePerUnit(),
+      lowestSeed,
+      highestSeed
+    );
+    const seedPrice =
+      genesis.atlNode && genesis.atlNode.price > 0 ? genesis.atlNode.price : visibleMinPrice;
     const baseVibration =
       genesis.bullGenesisVelocity > 0 && Number.isFinite(genesis.bullGenesisVelocity)
         ? genesis.bullGenesisVelocity
@@ -151,11 +159,9 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
       lockedMultiplier = Math.round(finalVibration / baseVibration);
       const baseCellWidth = state.baseUnit || 12;
       const baseCellHeight = state.baseUnit || 12;
-      const zoomVal = state.zoom;
-      const zoomX = typeof (zoomVal as any) === "object" ? (zoomVal as any).x : (zoomVal as number);
-      const zoomY = typeof (zoomVal as any) === "object" ? (zoomVal as any).y : (zoomVal as number);
-      const colWidth = zoomX * baseCellWidth;
-      const rowHeight = zoomY * baseCellHeight;
+      // Fixed unzoomed grid cell dimensions for 1:1 isotropic scale invariant (zoom never distorts scale)
+      const colWidth = baseCellWidth;
+      const rowHeight = baseCellHeight;
 
       // Convert the vibration to pricePerUnit via PixelTranslator to guarantee a 1:1 screen aspect ratio
       const translatedPPU = velocityToPricePerUnit(finalVibration, colWidth, rowHeight);
@@ -193,13 +199,12 @@ function registerScalerHooks(bridge: IGridBridge): () => void {
     }
   });
 
-  // Hook 2: State change listener to catch pan/zoom adjustments
+  // Hook 2: State change listener to catch pan adjustments (NEVER zoom, preserving isotropic scale)
   const unsub = bridge.subscribe((state, prevState) => {
     if (!isScalerActive) return;
     if (
       state.pan.x !== prevState.pan.x ||
-      state.pan.y !== prevState.pan.y ||
-      state.zoom !== prevState.zoom
+      state.pan.y !== prevState.pan.y
     ) {
       evaluateViewportScale(bridge, state.screenHeight || 600);
     }
@@ -239,7 +244,7 @@ export const ViewportScalerModule: GannModule = {
     },
   ],
   initialize: (bridge: IGridBridge) => {
-    isScalerActive = true;
+    isScalerActive = false;
     lockedScale = null;
     lockedMultiplier = null;
     lockedUpperBoundary = 0;
@@ -250,9 +255,6 @@ export const ViewportScalerModule: GannModule = {
       unregisterOverlayFn();
     }
     unregisterOverlayFn = registerScalerHooks(bridge);
-
-    // Initial evaluation
-    evaluateViewportScale(bridge, 600);
   },
   destroy: () => {
     isScalerActive = false;

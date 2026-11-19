@@ -43,9 +43,22 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const toggleAxisTransparency = useGridState((s) => s.toggleAxisTransparency);
   const toggleCrosshair = useGridState((s) => s.toggleCrosshair);
   const clearAllData = useGridState((s) => s.clearAllData);
+  const lowestSeed = useGridState((s) => s.lowestSeed);
+  const highestSeed = useGridState((s) => s.highestSeed);
+  const activeSeedTool = useGridState((s) => s.activeSeedTool);
+  const setLowestSeed = useGridState((s) => s.setLowestSeed);
+  const setHighestSeed = useGridState((s) => s.setHighestSeed);
+  const setActiveSeedTool = useGridState((s) => s.setActiveSeedTool);
+  const clearManualSeeds = useGridState((s) => s.clearManualSeeds);
   const hasCandles = useGridState((s) => s.candles.length > 0);
   const basePrice = useGridState((s) => s.basePrice);
   const pricePerUnit = useGridState((s) => s.pricePerUnit);
+
+  const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
+  const [lowestDateInput, setLowestDateInput] = useState("");
+  const [lowestPriceInput, setLowestPriceInput] = useState("");
+  const [highestDateInput, setHighestDateInput] = useState("");
+  const [highestPriceInput, setHighestPriceInput] = useState("");
 
   // Dynamic Modular Plugin Tools (Feature-Sliced Architecture)
   const moduleTools = useActiveModuleTools();
@@ -530,6 +543,365 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         >
           {isAxisTransparent ? "🌓 Transparent Axes" : "🌔 Solid Axes"}
         </button>
+      </div>
+
+      <div style={dividerStyle} />
+
+      {/* Manual Seed Controls (Time + Price) */}
+      <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+        <button
+          onClick={() => setIsSeedModalOpen((prev) => !prev)}
+          style={{
+            ...buttonStyle,
+            backgroundColor: activeSeedTool !== "NONE" ? "#FFF8E1" : (lowestSeed || highestSeed) ? "#E8F5E9" : "transparent",
+            borderColor: activeSeedTool !== "NONE" ? "#FFA000" : (lowestSeed || highestSeed) ? "#2E7D32" : "rgba(74, 120, 102, 0.40)",
+            color: activeSeedTool !== "NONE" ? "#B78103" : (lowestSeed || highestSeed) ? "#1B5E20" : "#333",
+            fontWeight: (lowestSeed || highestSeed || activeSeedTool !== "NONE") ? "bold" : "normal",
+          }}
+          title="Manual Lowest & Highest Seed Configuration (Time + Price)"
+        >
+          {activeSeedTool !== "NONE"
+            ? "🎯 Picking..."
+            : `🌱 Seeds ${lowestSeed || highestSeed ? `(${[lowestSeed ? "L" : "", highestSeed ? "H" : ""].filter(Boolean).join("+")})` : ""}`}
+        </button>
+
+        {isSeedModalOpen && (
+          <div
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              marginTop: "6px",
+              width: "370px",
+              backgroundColor: "#FAF9F5",
+              border: "1.5px solid #2E7D32",
+              borderRadius: "8px",
+              padding: "14px",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
+              zIndex: 1000,
+              fontFamily: "'Courier New', Courier, monospace",
+              color: "#1E2A24",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "10px",
+                borderBottom: "1px solid rgba(74, 120, 102, 0.3)",
+                paddingBottom: "6px",
+              }}
+            >
+              <strong style={{ fontSize: "12px", color: "#1B5E20" }}>
+                🌱 MANUAL SEEDS (TIME + PRICE)
+              </strong>
+              <button
+                onClick={() => setIsSeedModalOpen(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  fontWeight: "bold",
+                  color: "#666",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* 1. LOWEST SEED */}
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "8px 10px",
+                backgroundColor: "#FFF8E1",
+                borderRadius: "6px",
+                border: "1px solid #FFE082",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "4px",
+                }}
+              >
+                <span style={{ fontWeight: "bold", fontSize: "11px", color: "#B78103" }}>
+                  ★ LOWEST SEED (BULL ANCHOR)
+                </span>
+                {lowestSeed && (
+                  <button
+                    onClick={() => setLowestSeed(null)}
+                    style={{
+                      fontSize: "10px",
+                      color: "#C62828",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: "10px", marginBottom: "6px", color: "#555" }}>
+                Current:{" "}
+                <strong>
+                  {lowestSeed
+                    ? `₹${lowestSeed.price.toLocaleString("en-IN")} | ${
+                        lowestSeed.date || `Col ${lowestSeed.gridCol}`
+                      }`
+                    : "(Not Set)"}
+                </strong>
+              </div>
+              <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                <input
+                  type="text"
+                  placeholder="Date / Col (e.g. 2020-03-24)"
+                  value={lowestDateInput}
+                  onChange={(e) => setLowestDateInput(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: "4px 6px",
+                    fontSize: "10px",
+                    border: "1px solid #CCC",
+                    borderRadius: "3px",
+                  }}
+                />
+                <input
+                  type="number"
+                  placeholder="Price (₹)"
+                  value={lowestPriceInput}
+                  onChange={(e) => setLowestPriceInput(e.target.value)}
+                  style={{
+                    width: "95px",
+                    padding: "4px 6px",
+                    fontSize: "10px",
+                    border: "1px solid #CCC",
+                    borderRadius: "3px",
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  onClick={() => {
+                    const price = parseFloat(lowestPriceInput);
+                    if (Number.isFinite(price) && price > 0) {
+                      const colMatch = lowestDateInput.match(/col\s*(\d+)/i);
+                      const gridCol = colMatch ? parseInt(colMatch[1], 10) : 0;
+                      setLowestSeed({ date: lowestDateInput, gridCol, price });
+                      setLowestPriceInput("");
+                      setLowestDateInput("");
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "4px 8px",
+                    backgroundColor: "#FFD54F",
+                    border: "1px solid #FFA000",
+                    borderRadius: "3px",
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                  }}
+                >
+                  Set Lowest
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSeedTool("PICK_LOWEST");
+                    setIsSeedModalOpen(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "4px 8px",
+                    backgroundColor: "#FFF",
+                    border: "1px solid #FFA000",
+                    borderRadius: "3px",
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    color: "#B78103",
+                  }}
+                >
+                  🎯 Pick on Chart
+                </button>
+              </div>
+            </div>
+
+            {/* 2. HIGHEST SEED */}
+            <div
+              style={{
+                marginBottom: "12px",
+                padding: "8px 10px",
+                backgroundColor: "#E0F7FA",
+                borderRadius: "6px",
+                border: "1px solid #80DEEA",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: "4px",
+                }}
+              >
+                <span style={{ fontWeight: "bold", fontSize: "11px", color: "#00838F" }}>
+                  ★ HIGHEST SEED (BEAR ANCHOR)
+                </span>
+                {highestSeed && (
+                  <button
+                    onClick={() => setHighestSeed(null)}
+                    style={{
+                      fontSize: "10px",
+                      color: "#C62828",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div style={{ fontSize: "10px", marginBottom: "6px", color: "#555" }}>
+                Current:{" "}
+                <strong>
+                  {highestSeed
+                    ? `₹${highestSeed.price.toLocaleString("en-IN")} | ${
+                        highestSeed.date || `Col ${highestSeed.gridCol}`
+                      }`
+                    : "(Not Set)"}
+                </strong>
+              </div>
+              <div style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                <input
+                  type="text"
+                  placeholder="Date / Col (e.g. 2024-09-27)"
+                  value={highestDateInput}
+                  onChange={(e) => setHighestDateInput(e.target.value)}
+                  style={{
+                    flex: 1,
+                    padding: "4px 6px",
+                    fontSize: "10px",
+                    border: "1px solid #CCC",
+                    borderRadius: "3px",
+                  }}
+                />
+                <input
+                  type="number"
+                  placeholder="Price (₹)"
+                  value={highestPriceInput}
+                  onChange={(e) => setHighestPriceInput(e.target.value)}
+                  style={{
+                    width: "95px",
+                    padding: "4px 6px",
+                    fontSize: "10px",
+                    border: "1px solid #CCC",
+                    borderRadius: "3px",
+                  }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  onClick={() => {
+                    const price = parseFloat(highestPriceInput);
+                    if (Number.isFinite(price) && price > 0) {
+                      const colMatch = highestDateInput.match(/col\s*(\d+)/i);
+                      const gridCol = colMatch ? parseInt(colMatch[1], 10) : 0;
+                      setHighestSeed({ date: highestDateInput, gridCol, price });
+                      setHighestPriceInput("");
+                      setHighestDateInput("");
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "4px 8px",
+                    backgroundColor: "#80DEEA",
+                    border: "1px solid #00ACC1",
+                    borderRadius: "3px",
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                  }}
+                >
+                  Set Highest
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSeedTool("PICK_HIGHEST");
+                    setIsSeedModalOpen(false);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "4px 8px",
+                    backgroundColor: "#FFF",
+                    border: "1px solid #00ACC1",
+                    borderRadius: "3px",
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                    color: "#00838F",
+                  }}
+                >
+                  🎯 Pick on Chart
+                </button>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderTop: "1px solid rgba(74, 120, 102, 0.2)",
+                paddingTop: "8px",
+              }}
+            >
+              <button
+                onClick={() => {
+                  clearManualSeeds();
+                  setLowestDateInput("");
+                  setLowestPriceInput("");
+                  setHighestDateInput("");
+                  setHighestPriceInput("");
+                }}
+                style={{
+                  fontSize: "10px",
+                  color: "#C62828",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                Clear All Seeds
+              </button>
+              <button
+                onClick={() => setIsSeedModalOpen(false)}
+                style={{
+                  padding: "4px 14px",
+                  backgroundColor: "#2E7D32",
+                  color: "#FFF",
+                  border: "none",
+                  borderRadius: "4px",
+                  fontSize: "10px",
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={dividerStyle} />

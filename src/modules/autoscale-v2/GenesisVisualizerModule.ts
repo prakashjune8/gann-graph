@@ -23,9 +23,16 @@ function registerGenesisOverlay(bridge: IGridBridge): () => void {
     const candles = b.getCandles();
     if (!candles || candles.length === 0) return;
 
-    // 1. Run full-dataset Genesis Math & Proof of Seed
-    const genesis: GenesisExtractionResult = extractGenesisNodes(candles as any);
-    if (!genesis.atlNode || !genesis.athNode) return;
+    // 1. Run manual-seed Genesis Math & Proof of Seed
+    const lowestSeed = b.getLowestSeed();
+    const highestSeed = b.getHighestSeed();
+    const genesis: GenesisExtractionResult = extractGenesisNodes(
+      candles as any,
+      b.getTimePerUnit(),
+      lowestSeed,
+      highestSeed
+    );
+    if (!genesis.atlNode && !genesis.athNode) return;
 
     ctx.save();
 
@@ -184,10 +191,24 @@ function registerGenesisOverlay(bridge: IGridBridge): () => void {
 
     ctx.font = "9px 'Courier New', Courier, monospace";
     ctx.fillStyle = "#37474F";
-    const bullStatus = genesis.bullProof.isValid ? "✓ PASS (1% 8th)" : "△ FRACT";
-    const bearStatus = genesis.bearProof.isValid ? "✓ PASS (1% 8th)" : "△ FRACT";
-    ctx.fillText(`Bull Seed (${genesis.atlNode.price}): ${bullStatus} [T${genesis.bullTier}]`, hudX + 8, hudY + 20);
-    ctx.fillText(`Bear Seed (${genesis.athNode.price}): ${bearStatus} [T${genesis.bearTier}]`, hudX + 8, hudY + 34);
+    const bullStatus = genesis.bullProof
+      ? genesis.bullProof.isValid
+        ? "✓ PASS (1% 8th)"
+        : "△ FRACT"
+      : "Not Set";
+    const bearStatus = genesis.bearProof
+      ? genesis.bearProof.isValid
+        ? "✓ PASS (1% 8th)"
+        : "△ FRACT"
+      : "Not Set";
+    const bullText = genesis.atlNode
+      ? `Bull Seed (₹${genesis.atlNode.price.toLocaleString("en-IN")}): ${bullStatus} [T${genesis.bullTier}]`
+      : "Bull Seed: Not Set (Manual)";
+    const bearText = genesis.athNode
+      ? `Bear Seed (₹${genesis.athNode.price.toLocaleString("en-IN")}): ${bearStatus} [T${genesis.bearTier}]`
+      : "Bear Seed: Not Set (Manual)";
+    ctx.fillText(bullText, hudX + 8, hudY + 20);
+    ctx.fillText(bearText, hudX + 8, hudY + 34);
 
     ctx.restore();
 

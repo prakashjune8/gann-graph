@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { Point2D, GridCoord, SwingPoint, CandleData, ChartDisplayMode } from "../types/gann";
+import { Point2D, GridCoord, SwingPoint, CandleData, ChartDisplayMode, ManualSeedPoint } from "../types/gann";
 import { identifyCandlestickPatterns } from "../utils/candlestickPatterns";
 import { verifyKeEAspectRatio, SentinelAuditResult } from "../utils/ratioSentinel";
 
@@ -142,7 +142,16 @@ export interface GridState {
   visibleHighestPrice: number;// Active-window visible high
   visibleLowestPrice: number; // Active-window visible low (>= 0)
 
+  // Manual Lowest & Highest Seed State (Time + Price)
+  lowestSeed: ManualSeedPoint | null;
+  highestSeed: ManualSeedPoint | null;
+  activeSeedTool: "NONE" | "PICK_LOWEST" | "PICK_HIGHEST";
+
   // Actions
+  setLowestSeed: (seed: ManualSeedPoint | null) => void;
+  setHighestSeed: (seed: ManualSeedPoint | null) => void;
+  setActiveSeedTool: (tool: "NONE" | "PICK_LOWEST" | "PICK_HIGHEST") => void;
+  clearManualSeeds: () => void;
   setPan: (pan: Point2D) => void;
   panBy: (deltaX: number, deltaY: number) => void;
   zoomAt: (screenX: number, screenY: number, zoomFactorDelta: number) => void;
@@ -253,6 +262,15 @@ export const useGridState = create<GridState>((set, get) => ({
   priceCeiling: 24772, // 22520 * 1.10 (+10% Headroom)
   visibleHighestPrice: 22520,
   visibleLowestPrice: 21380,
+
+  lowestSeed: null,
+  highestSeed: null,
+  activeSeedTool: "NONE",
+
+  setLowestSeed: (seed) => set({ lowestSeed: seed }),
+  setHighestSeed: (seed) => set({ highestSeed: seed }),
+  setActiveSeedTool: (tool) => set({ activeSeedTool: tool }),
+  clearManualSeeds: () => set({ lowestSeed: null, highestSeed: null, activeSeedTool: "NONE" }),
 
   setPan: (pan) =>
     set({

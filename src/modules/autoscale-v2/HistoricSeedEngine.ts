@@ -9,7 +9,7 @@
  * 4. Master Octave Filtering & Projection: Canonical Rule of 8 arrays for geometric calibration.
  */
 
-import { CandleData } from "../../types/gann";
+import { CandleData, ManualSeedPoint } from "../../types/gann";
 import { detectGannSwings, SwingNode } from "./SwingDetector";
 
 export interface GlobalAnchors {
@@ -68,8 +68,8 @@ export interface SeedValidationResult {
 }
 
 export interface GenesisVibration {
-  atlNode: GenesisNode;
-  athNode: GenesisNode;
+  atlNode: GenesisNode | null;
+  athNode: GenesisNode | null;
   bullNodes: GenesisNode[]; // Only real confirmed market swing nodes (no hallucinations)
   bearNodes: GenesisNode[]; // Only real confirmed market swing nodes (no hallucinations)
   allBullNodes: GenesisNode[]; // [ATL, ...bullNodes]
@@ -80,8 +80,8 @@ export interface GenesisVibration {
   h1?: GenesisNode;
   h2?: GenesisNode;
   h3?: GenesisNode;
-  bullProof: SeedValidationResult;
-  bearProof: SeedValidationResult;
+  bullProof: SeedValidationResult | null;
+  bearProof: SeedValidationResult | null;
   ruleOf8BullGrid: { fraction: string; price: number }[];
   bullGenesisVelocity: number;
   bearGenesisVelocity: number;
@@ -274,35 +274,26 @@ export function validateSeed(
  */
 export function extractGenesisNodes(
   fullDataset: CandleData[],
-  timeframe: string = "1D"
+  timeframe: string = "1D",
+  manualLowest?: ManualSeedPoint | null,
+  manualHighest?: ManualSeedPoint | null
 ): GenesisExtractionResult {
   if (!fullDataset || fullDataset.length === 0) {
-    const dummyNode: GenesisNode = {
-      col: 0,
-      price: 100,
-      type: "LL",
-      label: "ATL",
-      date: "",
-      indexInDataset: 0,
-      deltaTFromAnchor: 0,
-      priceDeltaFromAnchor: 0,
-      velocityFromAnchor: 1.0,
-    };
     return {
-      atlNode: dummyNode,
-      athNode: { ...dummyNode, label: "ATH", type: "HH" },
+      atlNode: null,
+      athNode: null,
       bullNodes: [],
       bearNodes: [],
-      allBullNodes: [dummyNode],
-      allBearNodes: [{ ...dummyNode, label: "ATH", type: "HH" }],
+      allBullNodes: [],
+      allBearNodes: [],
       l1: undefined,
       l2: undefined,
       l3: undefined,
       h1: undefined,
       h2: undefined,
       h3: undefined,
-      bullProof: { seedPrice: 100, tolerance: 0.01, isValid: false, matchRatio: 0, matches: [] },
-      bearProof: { seedPrice: 100, tolerance: 0.01, isValid: false, matchRatio: 0, matches: [] },
+      bullProof: null,
+      bearProof: null,
       ruleOf8BullGrid: [],
       bullGenesisVelocity: 1.0,
       bearGenesisVelocity: 1.0,
@@ -311,213 +302,213 @@ export function extractGenesisNodes(
     };
   }
 
-  // 1. Locate absolute ATL and ATH (Strictly ignoring null, NaN, or non-positive values)
-  let minLow = Infinity;
-  let maxHigh = -Infinity;
-  let atlIdx = 0;
-  let athIdx = 0;
+  // =========================================================================
+  // 1. MANUAL LOWEST SEED (BULL SEED ANCHOR)
+  // Automatic scan completely disabled. Only derived when manualLowest is provided.
+  // =========================================================================
+  let atlNode: GenesisNode | null = null;
+  let bullNodes: GenesisNode[] = [];
+  let bullProof: SeedValidationResult | null = null;
+  let ruleOf8BullGrid: { fraction: string; price: number }[] = [];
+  let bullGenesisVelocity = 1.0;
+  let bullTier = 0;
 
-  for (let i = 0; i < fullDataset.length; i++) {
-    const c = fullDataset[i];
-    if (Number.isFinite(c.low) && c.low > 0 && c.low < minLow) {
-      minLow = c.low;
-      atlIdx = i;
+  if (manualLowest && Number.isFinite(manualLowest.price) && manualLowest.price > 0) {
+    let atlIdx = 0;
+    let minDiff = Infinity;
+    for (let i = 0; i < fullDataset.length; i++) {
+      const c = fullDataset[i];
+      const diff = Math.abs(c.gridCol - manualLowest.gridCol);
+      if (diff < minDiff) {
+        minDiff = diff;
+        atlIdx = i;
+      }
     }
-    if (Number.isFinite(c.high) && c.high > 0 && c.high > maxHigh) {
-      maxHigh = c.high;
-      athIdx = i;
+
+    const safeAtlCol =
+      Number.isFinite(manualLowest.gridCol) && manualLowest.gridCol < 10000000
+        ? manualLowest.gridCol
+        : atlIdx * 2;
+
+    atlNode = {
+      col: safeAtlCol,
+      price: manualLowest.price,
+      type: "LL",
+      label: "Seed Low",
+      date: manualLowest.date || (fullDataset[atlIdx] ? fullDataset[atlIdx].timestamp : ""),
+      indexInDataset: atlIdx,
+      deltaTFromAnchor: 0,
+      priceDeltaFromAnchor: 0,
+      velocityFromAnchor: 0,
+    };
+
+    // Forward Bull Swings from manual seed
+    const bullSlice = fullDataset.slice(atlIdx);
+    const bullSwings = detectGannSwings(bullSlice, timeframe);
+    const bullLabels = ["L1", "L2", "L3"];
+    let priorConfirmedLow = atlNode.price;
+
+    for (const swing of bullSwings) {
+      if (swing.type === "LL" && swing.price > priorConfirmedLow) {
+        const swingCol =
+          Number.isFinite(swing.col) && swing.col < 10000000
+            ? swing.col
+            : safeAtlCol + bullNodes.length + 1;
+        const deltaT = Math.max(1, swingCol - safeAtlCol);
+        const priceDelta = Math.abs(swing.price - atlNode.price);
+
+        bullNodes.push({
+          ...swing,
+          col: swingCol,
+          label: bullLabels[bullNodes.length],
+          indexInDataset: atlIdx + bullSlice.findIndex((c) => c.gridCol === swing.col),
+          deltaTFromAnchor: deltaT,
+          priceDeltaFromAnchor: priceDelta,
+          velocityFromAnchor: priceDelta / deltaT,
+        });
+
+        priorConfirmedLow = swing.price;
+        if (bullNodes.length >= 3) break;
+      }
     }
-  }
 
-  // Safety fallback if no positive extremes found
-  if (!Number.isFinite(minLow) || minLow <= 0) minLow = 100;
-  if (!Number.isFinite(maxHigh) || maxHigh <= 0) maxHigh = 200;
-
-  const atlCandle = fullDataset[atlIdx] || { low: minLow, timestamp: "", gridCol: 0 };
-  const athCandle = fullDataset[athIdx] || { high: maxHigh, timestamp: "", gridCol: 0 };
-
-  // Strictly sanitize discrete column index to prevent raw JS Date millisecond timestamps (e.g. 1.71 Trillion)
-  const safeAtlCol = Number.isFinite(atlCandle.gridCol) && atlCandle.gridCol < 10000000
-    ? atlCandle.gridCol
-    : atlIdx * 2;
-  const safeAthCol = Number.isFinite(athCandle.gridCol) && athCandle.gridCol < 10000000
-    ? athCandle.gridCol
-    : athIdx * 2;
-
-  const atlNode: GenesisNode = {
-    col: safeAtlCol,
-    price: atlCandle.low,
-    type: "LL",
-    label: "ATL",
-    date: atlCandle.timestamp,
-    indexInDataset: atlIdx,
-    deltaTFromAnchor: 0,
-    priceDeltaFromAnchor: 0,
-    velocityFromAnchor: 0,
-  };
-
-  const athNode: GenesisNode = {
-    col: safeAthCol,
-    price: athCandle.high,
-    type: "HH",
-    label: "ATH",
-    date: athCandle.timestamp,
-    indexInDataset: athIdx,
-    deltaTFromAnchor: 0,
-    priceDeltaFromAnchor: 0,
-    velocityFromAnchor: 0,
-  };
-
-  // 2. BULL SEED: Slice from ATL forward in strict chronological time.
-  // Extract first 3 subsequent Higher Lows (LL nodes strictly higher than prior confirmed low).
-  // Invariant: Never label a point as a higher low relative to a prior low when its price is lower than that prior low.
-  const bullSlice = fullDataset.slice(atlIdx);
-  const bullSwings = detectGannSwings(bullSlice, timeframe);
-
-  const bullNodes: GenesisNode[] = [];
-  const bullLabels = ["L1", "L2", "L3"];
-  let priorConfirmedLow = atlNode.price;
-
-  for (const swing of bullSwings) {
-    if (swing.type === "LL" && swing.price > priorConfirmedLow) {
-      const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 
-        ? swing.col 
-        : (safeAtlCol + bullNodes.length + 1);
-      const deltaT = Math.max(1, swingCol - safeAtlCol);
-      const priceDelta = Math.abs(swing.price - atlNode.price);
-      
-      bullNodes.push({
-        ...swing,
-        col: swingCol,
-        label: bullLabels[bullNodes.length],
-        indexInDataset: atlIdx + bullSlice.findIndex((c) => c.gridCol === swing.col),
-        deltaTFromAnchor: deltaT,
-        priceDeltaFromAnchor: priceDelta,
-        velocityFromAnchor: priceDelta / deltaT,
-      });
-
-      // Advance confirmed low threshold strictly monotonically
-      priorConfirmedLow = swing.price;
-      if (bullNodes.length >= 3) break;
+    // Dynamic Bull Velocity
+    if (bullNodes.length >= 3) {
+      bullTier = 3;
+      const l3 = bullNodes[2];
+      const safeL3Col = Number.isFinite(l3.col) && l3.col < 10000000 ? l3.col : safeAtlCol + 3;
+      const deltaT = Math.max(1, safeL3Col - safeAtlCol);
+      bullGenesisVelocity = Math.max(0.0001, Math.abs(l3.price - atlNode.price) / deltaT);
+    } else if (bullNodes.length === 2) {
+      bullTier = 2;
+      const l2 = bullNodes[1];
+      const safeL2Col = Number.isFinite(l2.col) && l2.col < 10000000 ? l2.col : safeAtlCol + 2;
+      const deltaT = Math.max(1, safeL2Col - safeAtlCol);
+      bullGenesisVelocity = Math.max(0.0001, Math.abs(l2.price - atlNode.price) / deltaT);
+    } else if (bullNodes.length === 1) {
+      bullTier = 1;
+      const l1 = bullNodes[0];
+      const safeL1Col = Number.isFinite(l1.col) && l1.col < 10000000 ? l1.col : safeAtlCol + 1;
+      const deltaT = Math.max(1, safeL1Col - safeAtlCol);
+      bullGenesisVelocity = Math.max(0.0001, Math.abs(l1.price - atlNode.price) / deltaT);
+    } else {
+      bullTier = 0;
+      bullGenesisVelocity = Math.max(0.0001, atlNode.price / 8);
     }
+
+    bullProof = validateSeed(atlNode.price, bullNodes, 0.01);
+    const atlEighth = atlNode.price / 8;
+    ruleOf8BullGrid = [
+      { fraction: "ATL + 1/8", price: Math.round((atlNode.price + 1 * atlEighth) * 100) / 100 },
+      { fraction: "ATL + 2/8 (1/4)", price: Math.round((atlNode.price + 2 * atlEighth) * 100) / 100 },
+      { fraction: "ATL + 3/8", price: Math.round((atlNode.price + 3 * atlEighth) * 100) / 100 },
+      { fraction: "ATL + 4/8 (1/2)", price: Math.round((atlNode.price + 4 * atlEighth) * 100) / 100 },
+    ];
   }
 
-  // 3. BEAR SEED: Slice from ATH forward in strict chronological time.
-  // Extract first 3 subsequent Lower Highs (HH nodes strictly lower than prior confirmed high).
-  // Invariant: Never label a point as a lower high relative to a prior high when its price is higher than that prior high.
-  const bearSlice = fullDataset.slice(athIdx);
-  const bearSwings = detectGannSwings(bearSlice, timeframe);
+  // =========================================================================
+  // 2. MANUAL HIGHEST SEED (BEAR SEED ANCHOR)
+  // Automatic scan completely disabled. Only derived when manualHighest is provided.
+  // =========================================================================
+  let athNode: GenesisNode | null = null;
+  let bearNodes: GenesisNode[] = [];
+  let bearProof: SeedValidationResult | null = null;
+  let bearGenesisVelocity = 1.0;
+  let bearTier = 0;
 
-  const bearNodes: GenesisNode[] = [];
-  const bearLabels = ["H1", "H2", "H3"];
-  let priorConfirmedHigh = athNode.price;
-
-  for (const swing of bearSwings) {
-    if (swing.type === "HH" && swing.price < priorConfirmedHigh) {
-      const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 
-        ? swing.col 
-        : (safeAthCol + bearNodes.length + 1);
-      const deltaT = Math.max(1, swingCol - safeAthCol);
-      const priceDelta = Math.abs(athNode.price - swing.price);
-      
-      bearNodes.push({
-        ...swing,
-        col: swingCol,
-        label: bearLabels[bearNodes.length],
-        indexInDataset: athIdx + bearSlice.findIndex((c) => c.gridCol === swing.col),
-        deltaTFromAnchor: deltaT,
-        priceDeltaFromAnchor: priceDelta,
-        velocityFromAnchor: priceDelta / deltaT,
-      });
-
-      // Advance confirmed high threshold strictly monotonically
-      priorConfirmedHigh = swing.price;
-      if (bearNodes.length >= 3) break;
+  if (manualHighest && Number.isFinite(manualHighest.price) && manualHighest.price > 0) {
+    let athIdx = 0;
+    let minDiff = Infinity;
+    for (let i = 0; i < fullDataset.length; i++) {
+      const c = fullDataset[i];
+      const diff = Math.abs(c.gridCol - manualHighest.gridCol);
+      if (diff < minDiff) {
+        minDiff = diff;
+        athIdx = i;
+      }
     }
+
+    const safeAthCol =
+      Number.isFinite(manualHighest.gridCol) && manualHighest.gridCol < 10000000
+        ? manualHighest.gridCol
+        : athIdx * 2;
+
+    athNode = {
+      col: safeAthCol,
+      price: manualHighest.price,
+      type: "HH",
+      label: "Seed High",
+      date: manualHighest.date || (fullDataset[athIdx] ? fullDataset[athIdx].timestamp : ""),
+      indexInDataset: athIdx,
+      deltaTFromAnchor: 0,
+      priceDeltaFromAnchor: 0,
+      velocityFromAnchor: 0,
+    };
+
+    // Forward Bear Swings from manual seed
+    const bearSlice = fullDataset.slice(athIdx);
+    const bearSwings = detectGannSwings(bearSlice, timeframe);
+    const bearLabels = ["H1", "H2", "H3"];
+    let priorConfirmedHigh = athNode.price;
+
+    for (const swing of bearSwings) {
+      if (swing.type === "HH" && swing.price < priorConfirmedHigh) {
+        const swingCol =
+          Number.isFinite(swing.col) && swing.col < 10000000
+            ? swing.col
+            : safeAthCol + bearNodes.length + 1;
+        const deltaT = Math.max(1, swingCol - safeAthCol);
+        const priceDelta = Math.abs(athNode.price - swing.price);
+
+        bearNodes.push({
+          ...swing,
+          col: swingCol,
+          label: bearLabels[bearNodes.length],
+          indexInDataset: athIdx + bearSlice.findIndex((c) => c.gridCol === swing.col),
+          deltaTFromAnchor: deltaT,
+          priceDeltaFromAnchor: priceDelta,
+          velocityFromAnchor: priceDelta / deltaT,
+        });
+
+        priorConfirmedHigh = swing.price;
+        if (bearNodes.length >= 3) break;
+      }
+    }
+
+    // Dynamic Bear Velocity
+    if (bearNodes.length >= 3) {
+      bearTier = 3;
+      const h3 = bearNodes[2];
+      const safeH3Col = Number.isFinite(h3.col) && h3.col < 10000000 ? h3.col : safeAthCol + 3;
+      const deltaT = Math.max(1, safeH3Col - safeAthCol);
+      bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h3.price) / deltaT);
+    } else if (bearNodes.length === 2) {
+      bearTier = 2;
+      const h2 = bearNodes[1];
+      const safeH2Col = Number.isFinite(h2.col) && h2.col < 10000000 ? h2.col : safeAthCol + 2;
+      const deltaT = Math.max(1, safeH2Col - safeAthCol);
+      bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h2.price) / deltaT);
+    } else if (bearNodes.length === 1) {
+      bearTier = 1;
+      const h1 = bearNodes[0];
+      const safeH1Col = Number.isFinite(h1.col) && h1.col < 10000000 ? h1.col : safeAthCol + 1;
+      const deltaT = Math.max(1, safeH1Col - safeAthCol);
+      bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h1.price) / deltaT);
+    } else {
+      bearTier = 0;
+      bearGenesisVelocity = Math.max(0.0001, athNode.price / 8);
+    }
+
+    bearProof = validateSeed(athNode.price, bearNodes, 0.01);
   }
-
-  // 4. DYNAMIC BULL VELOCITY SWITCH (IMMATURE DATASET TIERING)
-  let bullGenesisVelocity: number;
-  let bullTier: number;
-
-  if (bullNodes.length >= 3) {
-    // Tier 3 (Mature): calculate using bullNodes[2] (L3)
-    bullTier = 3;
-    const l3 = bullNodes[2];
-    const safeL3Col = Number.isFinite(l3.col) && l3.col < 10000000 ? l3.col : (safeAtlCol + 3);
-    const deltaT = Math.max(1, safeL3Col - safeAtlCol);
-    bullGenesisVelocity = Math.max(0.0001, Math.abs(l3.price - atlNode.price) / deltaT);
-  } else if (bullNodes.length === 2) {
-    // Tier 2 (Developing): calculate using bullNodes[1] (L2)
-    bullTier = 2;
-    const l2 = bullNodes[1];
-    const safeL2Col = Number.isFinite(l2.col) && l2.col < 10000000 ? l2.col : (safeAtlCol + 2);
-    const deltaT = Math.max(1, safeL2Col - safeAtlCol);
-    bullGenesisVelocity = Math.max(0.0001, Math.abs(l2.price - atlNode.price) / deltaT);
-  } else if (bullNodes.length === 1) {
-    // Tier 1 (Immature): calculate using bullNodes[0] (L1)
-    bullTier = 1;
-    const l1 = bullNodes[0];
-    const safeL1Col = Number.isFinite(l1.col) && l1.col < 10000000 ? l1.col : (safeAtlCol + 1);
-    const deltaT = Math.max(1, safeL1Col - safeAtlCol);
-    bullGenesisVelocity = Math.max(0.0001, Math.abs(l1.price - atlNode.price) / deltaT);
-  } else {
-    // Tier 0 (IPO / Day 1): fallback to atlNode.price / 8
-    bullTier = 0;
-    bullGenesisVelocity = Math.max(0.0001, atlNode.price / 8);
-  }
-
-  // 5. DYNAMIC BEAR VELOCITY SWITCH (IMMATURE DATASET TIERING)
-  let bearGenesisVelocity: number;
-  let bearTier: number;
-
-  if (bearNodes.length >= 3) {
-    // Tier 3 (Mature): calculate using bearNodes[2] (H3)
-    bearTier = 3;
-    const h3 = bearNodes[2];
-    const safeH3Col = Number.isFinite(h3.col) && h3.col < 10000000 ? h3.col : (safeAthCol + 3);
-    const deltaT = Math.max(1, safeH3Col - safeAthCol);
-    bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h3.price) / deltaT);
-  } else if (bearNodes.length === 2) {
-    // Tier 2 (Developing): calculate using bearNodes[1] (H2)
-    bearTier = 2;
-    const h2 = bearNodes[1];
-    const safeH2Col = Number.isFinite(h2.col) && h2.col < 10000000 ? h2.col : (safeAthCol + 2);
-    const deltaT = Math.max(1, safeH2Col - safeAthCol);
-    bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h2.price) / deltaT);
-  } else if (bearNodes.length === 1) {
-    // Tier 1 (Immature): calculate using bearNodes[0] (H1)
-    bearTier = 1;
-    const h1 = bearNodes[0];
-    const safeH1Col = Number.isFinite(h1.col) && h1.col < 10000000 ? h1.col : (safeAthCol + 1);
-    const deltaT = Math.max(1, safeH1Col - safeAthCol);
-    bearGenesisVelocity = Math.max(0.0001, Math.abs(athNode.price - h1.price) / deltaT);
-  } else {
-    // Tier 0 (IPO / Day 1): fallback to athNode.price / 8
-    bearTier = 0;
-    bearGenesisVelocity = Math.max(0.0001, athNode.price / 8);
-  }
-
-  // 6. Proof of the Seed validation
-  const bullProof = validateSeed(atlNode.price, bullNodes, 0.01);
-  const bearProof = validateSeed(athNode.price, bearNodes, 0.01);
-
-  // 7. Rule of 8 Grid Levels for ATL: 1/8th, 1/4 (2/8), 3/8 price levels
-  const atlEighth = atlNode.price / 8;
-  const ruleOf8BullGrid = [
-    { fraction: "ATL + 1/8", price: Math.round((atlNode.price + 1 * atlEighth) * 100) / 100 },
-    { fraction: "ATL + 2/8 (1/4)", price: Math.round((atlNode.price + 2 * atlEighth) * 100) / 100 },
-    { fraction: "ATL + 3/8", price: Math.round((atlNode.price + 3 * atlEighth) * 100) / 100 },
-    { fraction: "ATL + 4/8 (1/2)", price: Math.round((atlNode.price + 4 * atlEighth) * 100) / 100 },
-  ];
 
   return {
     atlNode,
     athNode,
     bullNodes,
     bearNodes,
-    allBullNodes: [atlNode, ...bullNodes],
-    allBearNodes: [athNode, ...bearNodes],
+    allBullNodes: atlNode ? [atlNode, ...bullNodes] : [],
+    allBearNodes: athNode ? [athNode, ...bearNodes] : [],
     l1: bullNodes.length >= 1 ? bullNodes[0] : undefined,
     l2: bullNodes.length >= 2 ? bullNodes[1] : undefined,
     l3: bullNodes.length >= 3 ? bullNodes[2] : undefined,
@@ -543,21 +534,25 @@ export const calculateGenesisVibration = extractGenesisNodes;
  * Extracts Dual Historic Extreme Nodes (ATL & ATH) with indices, columns, and prices,
  * executes forward Gann 3-day swing detections, and derives the Bull and Bear Genesis velocities.
  */
-export function calculateDualGenesisVelocities(fullDataset: CandleData[]): DualGenesisResult {
-  const genesis = extractGenesisNodes(fullDataset);
+export function calculateDualGenesisVelocities(
+  fullDataset: CandleData[],
+  manualLowest?: ManualSeedPoint | null,
+  manualHighest?: ManualSeedPoint | null
+): DualGenesisResult {
+  const genesis = extractGenesisNodes(fullDataset, "1D", manualLowest, manualHighest);
 
   const atl: HistoricExtremeNode = {
-    index: genesis.atlNode.indexInDataset,
-    col: genesis.atlNode.col,
-    price: genesis.atlNode.price,
-    candle: genesis.atlNode as any,
+    index: genesis.atlNode ? genesis.atlNode.indexInDataset : 0,
+    col: genesis.atlNode ? genesis.atlNode.col : 0,
+    price: genesis.atlNode ? genesis.atlNode.price : 0,
+    candle: (genesis.atlNode as any) || ({} as any),
   };
 
   const ath: HistoricExtremeNode = {
-    index: genesis.athNode.indexInDataset,
-    col: genesis.athNode.col,
-    price: genesis.athNode.price,
-    candle: genesis.athNode as any,
+    index: genesis.athNode ? genesis.athNode.indexInDataset : 0,
+    col: genesis.athNode ? genesis.athNode.col : 0,
+    price: genesis.athNode ? genesis.athNode.price : 0,
+    candle: (genesis.athNode as any) || ({} as any),
   };
 
   const bullOctaves = DUAL_OCTAVE_RATIOS.map((r) => Math.round(r * genesis.bullGenesisVelocity * 10000) / 10000);

@@ -83,6 +83,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const screenToWorld = useGridState((s) => s.screenToWorld);
   const worldToScreen = useGridState((s) => s.worldToScreen);
   const priceToWorldY = useGridState((s) => s.priceToWorldY);
+  const worldToPrice = useGridState((s) => s.worldToPrice);
+  const activeSeedTool = useGridState((s) => s.activeSeedTool);
+  const setLowestSeed = useGridState((s) => s.setLowestSeed);
+  const setHighestSeed = useGridState((s) => s.setHighestSeed);
+  const setActiveSeedTool = useGridState((s) => s.setActiveSeedTool);
 
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -1459,6 +1464,45 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
    * Captures interactions strictly on the outer master container to bypass canvas Z-index depth.
    */
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    // 1. Manual Seed Click-to-Pick Capture
+    if (activeSeedTool !== "NONE") {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
+
+      const worldX = (screenX - pan.x) / zoom;
+      const worldY = (pan.y - screenY) / zoom;
+      const clickedPrice = worldToPrice(worldY);
+      const clickedCol = Math.round(worldX / baseUnit);
+
+      // Find nearest candle horizontally
+      let nearestCandle = candles[0];
+      let minColDiff = Infinity;
+      for (const c of candles) {
+        const diff = Math.abs(c.gridCol - clickedCol);
+        if (diff < minColDiff) {
+          minColDiff = diff;
+          nearestCandle = c;
+        }
+      }
+
+      const isNearCandle = nearestCandle && minColDiff <= 4;
+      const date = isNearCandle ? nearestCandle.timestamp : "";
+      const gridCol = isNearCandle ? nearestCandle.gridCol : clickedCol;
+
+      if (activeSeedTool === "PICK_LOWEST") {
+        const price = isNearCandle ? nearestCandle.low : Math.round(clickedPrice * 100) / 100;
+        setLowestSeed({ date, gridCol, price: Math.max(0, price) });
+      } else if (activeSeedTool === "PICK_HIGHEST") {
+        const price = isNearCandle ? nearestCandle.high : Math.round(clickedPrice * 100) / 100;
+        setHighestSeed({ date, gridCol, price: Math.max(0, price) });
+      }
+      setActiveSeedTool("NONE");
+      return;
+    }
+
     if (e.button === 0 || e.button === 1) {
       isDraggingRef.current = true;
       dragStartRef.current = { x: e.clientX, y: e.clientY };
@@ -1583,6 +1627,58 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           display: "block",
         }}
       />
+
+      {/* Interactive Manual Seed HUD Banner */}
+      {activeSeedTool !== "NONE" && (
+        <div
+          style={{
+            position: "absolute",
+            top: "40px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            backgroundColor: activeSeedTool === "PICK_LOWEST" ? "#FFF8E1" : "#E0F7FA",
+            border:
+              activeSeedTool === "PICK_LOWEST" ? "2px solid #FF8F00" : "2px solid #00ACC1",
+            borderRadius: "6px",
+            padding: "8px 18px",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
+            display: "flex",
+            alignItems: "center",
+            gap: "14px",
+            zIndex: 100,
+            fontFamily: "'Courier New', Courier, monospace",
+            fontWeight: "bold",
+            fontSize: "12px",
+            color: "#1E2A24",
+            pointerEvents: "auto",
+          }}
+        >
+          <span>
+            {activeSeedTool === "PICK_LOWEST"
+              ? "🎯 CLICK CHART OR CANDLE TO SET LOWEST SEED (TIME + PRICE)"
+              : "🎯 CLICK CHART OR CANDLE TO SET HIGHEST SEED (TIME + PRICE)"}
+          </span>
+          <button
+            onClick={(ev) => {
+              ev.stopPropagation();
+              setActiveSeedTool("NONE");
+            }}
+            style={{
+              backgroundColor: "#C62828",
+              color: "#FFF",
+              border: "none",
+              borderRadius: "4px",
+              padding: "4px 10px",
+              cursor: "pointer",
+              fontSize: "11px",
+              fontFamily: "'Courier New', Courier, monospace",
+              fontWeight: "bold",
+            }}
+          >
+            ✕ Cancel
+          </button>
+        </div>
+      )}
     </div>
   );
 };

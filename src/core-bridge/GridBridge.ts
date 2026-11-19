@@ -12,7 +12,7 @@
  */
 
 import { useGridState, GridState } from "../store/useGridState";
-import { Point2D, GridCoord, SwingPoint, CandleData, ChartDisplayMode } from "../types/gann";
+import { Point2D, GridCoord, SwingPoint, CandleData, ChartDisplayMode, ManualSeedPoint } from "../types/gann";
 
 export type OverlayRenderer = (
   ctx: CanvasRenderingContext2D,
@@ -77,6 +77,15 @@ export interface IGridBridge {
   setChartMode(mode: ChartDisplayMode): void;
   setShowPatterns(show: boolean): void;
   setShowVolumeBars(show: boolean): void;
+
+  // Manual Seed Accessors & Dispatchers
+  getLowestSeed(): ManualSeedPoint | null;
+  getHighestSeed(): ManualSeedPoint | null;
+  setLowestSeed(seed: ManualSeedPoint | null): void;
+  setHighestSeed(seed: ManualSeedPoint | null): void;
+  getActiveSeedTool(): "NONE" | "PICK_LOWEST" | "PICK_HIGHEST";
+  setActiveSeedTool(tool: "NONE" | "PICK_LOWEST" | "PICK_HIGHEST"): void;
+  clearManualSeeds(): void;
 
   // Data Pipeline Dispatchers
   setCandles(candles: CandleData[]): void;
@@ -243,6 +252,34 @@ class CoreGridBridge implements IGridBridge {
 
   setShowVolumeBars(show: boolean): void {
     useGridState.getState().setShowVolumeBars(show);
+  }
+
+  getLowestSeed(): ManualSeedPoint | null {
+    return useGridState.getState().lowestSeed;
+  }
+
+  getHighestSeed(): ManualSeedPoint | null {
+    return useGridState.getState().highestSeed;
+  }
+
+  setLowestSeed(seed: ManualSeedPoint | null): void {
+    useGridState.getState().setLowestSeed(seed);
+  }
+
+  setHighestSeed(seed: ManualSeedPoint | null): void {
+    useGridState.getState().setHighestSeed(seed);
+  }
+
+  getActiveSeedTool(): "NONE" | "PICK_LOWEST" | "PICK_HIGHEST" {
+    return useGridState.getState().activeSeedTool;
+  }
+
+  setActiveSeedTool(tool: "NONE" | "PICK_LOWEST" | "PICK_HIGHEST"): void {
+    useGridState.getState().setActiveSeedTool(tool);
+  }
+
+  clearManualSeeds(): void {
+    useGridState.getState().clearManualSeeds();
   }
 
   // Data Pipeline Dispatchers

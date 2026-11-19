@@ -32,6 +32,13 @@ export interface SwingPoint {
   label?: string;
 }
 
+export interface ManualSeedPoint {
+  date: string;
+  gridCol: number;
+  price: number;
+  barIndex?: number;
+}
+
 export type ChartDisplayMode =
   | "CANDLESTICK"
   | "OHLC_BAR"
