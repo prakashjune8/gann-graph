@@ -12,7 +12,7 @@ import { DataDisplayCoordinator } from "./DataDisplayCoordinator";
 import { DisplayTimeframe } from "./DisplayTypes";
 
 let currentTimeframeIdx = 0;
-const TIMEFRAMES: DisplayTimeframe[] = ["1D", "1W", "1M"];
+const TIMEFRAMES: DisplayTimeframe[] = ["1D", "1W", "1M", "60m", "15m", "5m", "1m"];
 
 export const DataDisplayModule: GannModule = {
   id: "data-display-execution-module",

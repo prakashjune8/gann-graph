@@ -18,66 +18,142 @@ export interface SwingNode {
 }
 
 /**
- * Returns the fractal swing lookback parameter based on Indian market session cadence
- * (375 minutes per session: 09:15 to 15:30 IST) with safe dynamic clamping.
- *
- * Symmetrical Lookback Rules:
- * - 1D (Daily): 3 bars (Canonical W.D. Gann 3-day swing chart rule; 3 trading days flank)
- * - 1W (Weekly): 2 bars (2 weeks flank)
- * - 1M (Monthly): 2 bars (2 months flank)
- * - 60m (Hourly): 4 bars (~4 hours flank, ~2/3 of an Indian session)
- * - 15m (15-Minute): 5 bars (75 mins flank = 1/5th session = 25 bars/day cadence)
- * - 5m (5-Minute): 10 bars (50 mins flank = 75 bars/day cadence)
- * - 1m (1-Minute): 15 bars (15 mins flank = 375 bars/day cadence)
- *
- * Safe Clamping:
- * If a slice has fewer candles than nominalLookback * 2 + 1, it safely clamps
- * lookback down to Math.floor((N - 1) / 2) so short loaded slices never fail.
+ * Standard Indian equity trading session duration in minutes (NSE / BSE / MCX equity indices):
+ * 09:15 IST to 15:30 IST = 6 hours 15 minutes = 375 minutes.
  */
-export function getFractalSwingLookback(
+export const STANDARD_SESSION_MINUTES = 375;
+
+export interface ParsedTimeframeDetails {
+  barMinutes: number;
+  category: "INTRADAY" | "DAILY" | "WEEKLY" | "MONTHLY";
+  sessionDensity: number; // Bars per 375-min session
+}
+
+/**
+ * Robustly parses diverse timeframe specifications (e.g., "1m", "5m", "15m", "60m", "1D", "1W", "1M")
+ * into bar duration in minutes, timeframe category, and session bar density.
+ */
+export function parseTimeframeToMinutes(
+  timeframeOrLookback: string | number,
+  sessionMinutes: number = STANDARD_SESSION_MINUTES
+): ParsedTimeframeDetails {
+  if (typeof timeframeOrLookback === "number") {
+    const mins = Math.max(0.1, timeframeOrLookback);
+    const isIntra = mins < sessionMinutes;
+    return {
+      barMinutes: mins,
+      category: isIntra ? "INTRADAY" : "DAILY",
+      sessionDensity: sessionMinutes / mins,
+    };
+  }
+
+  const raw = String(timeframeOrLookback || "1D").trim();
+
+  // 1. Strict Monthly Check (case-sensitive for '1M' vs '1m')
+  if (raw === "1M" || raw.toLowerCase() === "1mo" || raw.toLowerCase().startsWith("month")) {
+    const mins = sessionMinutes * 21;
+    return { barMinutes: mins, category: "MONTHLY", sessionDensity: 1 / 21 };
+  }
+
+  const lower = raw.toLowerCase();
+
+  // 2. Strict Weekly Check
+  if (lower === "1w" || lower.startsWith("week")) {
+    const mins = sessionMinutes * 5;
+    return { barMinutes: mins, category: "WEEKLY", sessionDensity: 1 / 5 };
+  }
+
+  // 3. Strict Daily Check (Canonical 1D anchor)
+  if (lower === "1d" || lower.startsWith("day") || lower.startsWith("daily")) {
+    return { barMinutes: sessionMinutes, category: "DAILY", sessionDensity: 1.0 };
+  }
+
+  // 4. Intraday Hourly (e.g. "1h", "2h", "4h", "60 min", "1 hour")
+  const hourMatch = lower.match(/^(\d+)\s*(h|hr|hrs|hour|hours)$/);
+  if (hourMatch) {
+    const mins = parseInt(hourMatch[1], 10) * 60;
+    return {
+      barMinutes: mins,
+      category: "INTRADAY",
+      sessionDensity: sessionMinutes / Math.max(1, mins),
+    };
+  }
+
+  // 5. Intraday Minutes (e.g. "1m", "3m", "5m", "10m", "15m", "30m", "60m")
+  const minMatch = lower.match(/^(\d+)\s*(m|min|mins|minute|minutes)?$/);
+  if (minMatch) {
+    const mins = Math.max(1, parseInt(minMatch[1], 10));
+    const isIntra = mins < sessionMinutes;
+    return {
+      barMinutes: mins,
+      category: isIntra ? "INTRADAY" : "DAILY",
+      sessionDensity: sessionMinutes / mins,
+    };
+  }
+
+  // Default fallback: 1D
+  return { barMinutes: sessionMinutes, category: "DAILY", sessionDensity: 1.0 };
+}
+
+/**
+ * Computes lookback bar count dynamically from the active timeframe and session bar density
+ * rather than relying on a single static constant.
+ *
+ * Mathematical Derivation:
+ * - Daily (1D): 3 bars (Canonical W.D. Gann 3-day swing chart rule; 3 full trading sessions flank).
+ * - Weekly (1W): 2 bars (2-week flank ~ 10 trading sessions).
+ * - Monthly (1M): 2 bars (2-month flank ~ 42 trading sessions).
+ * - Intraday: Dynamically adapts across bar density D = sessionMinutes / barMinutes:
+ *     * 1m (D = 375 bars/session)  -> 15 bars (15-min micro-swing = 1/25th session)
+ *     * 5m (D = 75 bars/session)   -> 10 bars (50-min swing = 2/15th session)
+ *     * 15m (D = 25 bars/session)  -> 5 bars (75-min swing = 1/5th session)
+ *     * 60m (D = 6.25 bars/session)-> 4 bars (4-hour swing = ~2/3 session)
+ *
+ * For arbitrary custom intraday intervals (e.g. 2m, 3m, 10m, 30m, 45m), lookback is
+ * smoothly interpolated along the harmonic session density curve.
+ */
+export function computeDynamicSwingLookback(
   timeframeOrLookback: string | number = "1D",
-  candleCount?: number
+  candleCount?: number,
+  sessionMinutes: number = STANDARD_SESSION_MINUTES
 ): number {
+  if (typeof timeframeOrLookback === "number" && timeframeOrLookback >= 1 && timeframeOrLookback <= 50) {
+    // If a direct integer lookback was explicitly requested, respect it with safe clamping
+    const nominal = Math.round(timeframeOrLookback);
+    if (candleCount !== undefined && Number.isFinite(candleCount) && candleCount > 0) {
+      const maxSafe = Math.max(1, Math.floor((candleCount - 1) / 2));
+      return Math.min(nominal, maxSafe);
+    }
+    return nominal;
+  }
+
+  const parsed = parseTimeframeToMinutes(timeframeOrLookback, sessionMinutes);
   let nominal = 3;
 
-  if (typeof timeframeOrLookback === "number") {
-    nominal = Math.max(1, Math.round(timeframeOrLookback));
-  } else if (typeof timeframeOrLookback === "string") {
-    const rawTf = timeframeOrLookback.trim();
-    if (rawTf === "1m" || rawTf.toLowerCase() === "1min" || rawTf.toLowerCase() === "1 min" || rawTf.toLowerCase() === "1m_intraday") {
-      nominal = 15; // 15 mins flank (375 bars/day)
-    } else if (rawTf === "1M" || rawTf.toLowerCase() === "monthly" || rawTf.toLowerCase() === "1 month" || rawTf.toLowerCase() === "1mo") {
-      nominal = 2; // 2 months flank
+  if (parsed.category === "MONTHLY") {
+    nominal = 2;
+  } else if (parsed.category === "WEEKLY") {
+    nominal = 2;
+  } else if (parsed.category === "DAILY") {
+    nominal = 3; // Canonical W.D. Gann 3-day swing chart rule
+  } else {
+    // INTRADAY: Dynamically computed from session bar density
+    const d = parsed.sessionDensity;
+    if (d >= 75) {
+      // High density range: 5m (75 bars/session) to 1m (375 bars/session)
+      // Scales smoothly from 10 to 15 bars
+      nominal = Math.round(10 + ((d - 75) / (375 - 75)) * 5);
+    } else if (d >= 25) {
+      // Intermediate density range: 15m (25 bars/session) to 5m (75 bars/session)
+      // Scales smoothly from 5 to 10 bars
+      nominal = Math.round(5 + ((d - 25) / (75 - 25)) * 5);
+    } else if (d >= 6.25) {
+      // Hourly density range: 60m (6.25 bars/session) to 15m (25 bars/session)
+      // Scales smoothly from 4 to 5 bars
+      nominal = Math.round(4 + ((d - 6.25) / (25 - 6.25)) * 1);
     } else {
-      const tf = rawTf.toUpperCase();
-      switch (tf) {
-        case "1D":
-        case "DAILY":
-        case "1 DAY":
-          nominal = 3; // Baseline 1D anchor
-          break;
-        case "1W":
-        case "WEEKLY":
-        case "1 WEEK":
-          nominal = 2;
-          break;
-        case "60M":
-        case "1H":
-        case "60 MIN":
-          nominal = 4;
-          break;
-        case "15M":
-        case "15 MIN":
-          nominal = 5; // 75 mins flank (25 bars/day)
-          break;
-        case "5M":
-        case "5 MIN":
-          nominal = 10; // 50 mins flank (75 bars/day)
-          break;
-        default:
-          nominal = 3;
-          break;
-      }
+      // Low intraday density (> 60m): minimum 3 bars
+      nominal = Math.max(3, Math.round(d));
     }
   }
 
@@ -88,6 +164,17 @@ export function getFractalSwingLookback(
   }
 
   return nominal;
+}
+
+/**
+ * Returns the fractal swing lookback parameter dynamically computed from timeframe bar density.
+ * Direct alias and backward-compatible entry point for computeDynamicSwingLookback.
+ */
+export function getFractalSwingLookback(
+  timeframeOrLookback: string | number = "1D",
+  candleCount?: number
+): number {
+  return computeDynamicSwingLookback(timeframeOrLookback, candleCount);
 }
 
 /**
