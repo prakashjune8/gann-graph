@@ -33,9 +33,23 @@ export const App: React.FC = () => {
       }
     };
 
+    const handlePyWebViewReady = () => {
+      if (isMounted) {
+        console.info("[App] pywebviewready fired! Re-synchronizing native master vault series.");
+        checkStartupVaultHealth();
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("pywebviewready", handlePyWebViewReady);
+    }
+
     checkStartupVaultHealth();
     return () => {
       isMounted = false;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("pywebviewready", handlePyWebViewReady);
+      }
     };
   }, []);
 

@@ -65,13 +65,59 @@ declare global {
 }
 
 function hasNativeApi(): boolean {
-  return typeof window !== "undefined" && !!window.pywebview?.api;
+  return typeof window !== "undefined" && !!window.pywebview?.api?.check_vault_status;
+}
+
+/**
+ * Asynchronously waits for PyWebView native bridge to become ready (up to timeoutMs).
+ */
+export async function waitForNativeVaultBridge(timeoutMs = 2500): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  if (hasNativeApi()) return true;
+
+  return new Promise((resolve) => {
+    let resolved = false;
+
+    const onReady = () => {
+      if (!resolved) {
+        resolved = true;
+        window.removeEventListener("pywebviewready", onReady);
+        resolve(true);
+      }
+    };
+
+    window.addEventListener("pywebviewready", onReady);
+
+    const interval = setInterval(() => {
+      if (hasNativeApi()) {
+        if (!resolved) {
+          resolved = true;
+          clearInterval(interval);
+          window.removeEventListener("pywebviewready", onReady);
+          resolve(true);
+        }
+      }
+    }, 35);
+
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        clearInterval(interval);
+        window.removeEventListener("pywebviewready", onReady);
+        resolve(hasNativeApi());
+      }
+    }, timeoutMs);
+  });
 }
 
 /**
  * Checks the health, location, and record count of the local Market Data Vault.
  */
 export async function getVaultStatus(): Promise<VaultStatus> {
+  if (!hasNativeApi()) {
+    await waitForNativeVaultBridge(2500);
+  }
+
   if (hasNativeApi()) {
     try {
       return await window.pywebview!.api.check_vault_status();

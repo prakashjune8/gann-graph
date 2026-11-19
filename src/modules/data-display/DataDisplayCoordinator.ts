@@ -342,7 +342,7 @@ class DataDisplayCoordinatorEngine {
         symbol = savedSym;
       }
       const savedTf = localStorage.getItem("gann_active_timeframe") as DisplayTimeframe;
-      if (savedTf && ["1D", "1W", "1M", "60m", "15m", "5m"].includes(savedTf)) {
+      if (savedTf && ["1D", "1W", "1M", "60m", "15m", "5m", "1m"].includes(savedTf)) {
         timeframe = savedTf;
       }
     }

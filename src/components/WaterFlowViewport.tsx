@@ -158,7 +158,7 @@ export const WaterFlowViewport: React.FC = () => {
     if (candle) {
       setHoverInfo({
         x: hoverX,
-        text: `${candle.timestamp} | \u20B9${candle.close.toLocaleString("en-IN")}`,
+        text: `${candle.timestamp} | ₹${candle.close.toLocaleString("en-IN")}`,
       });
     }
   };
@@ -300,10 +300,10 @@ export const WaterFlowViewport: React.FC = () => {
             alignItems: "center",
             gap: "3px",
           }}
-          title={`Dynamic Upper Ceiling is set at +10% headroom above highest price (\u20B9${(highestPrice || 0).toLocaleString("en-IN")})`}
+          title={`Dynamic Upper Ceiling is set at +10% headroom above highest price (₹${(highestPrice || 0).toLocaleString("en-IN")})`}
         >
           <span>▲ CEILING (+10%):</span>
-          <span>\u20B9{priceCeiling.toLocaleString("en-IN")}</span>
+          <span>₹{priceCeiling.toLocaleString("en-IN")}</span>
         </div>
       )}
 
