@@ -427,7 +427,71 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // 2. Japanese Candlesticks
+    // 2. Gann Right-Angle Swing Steps (Rendered behind candlesticks in HYBRID mode so wicks/bodies are never obscured)
+    if (
+      (chartMode === "SWING_STEP" || chartMode === "HYBRID_CANDLE_SWING") &&
+      swingPoints.length > 0
+    ) {
+      ctx.save();
+      const isHybrid = chartMode === "HYBRID_CANDLE_SWING";
+      ctx.lineWidth = isHybrid ? 1.6 : 2.5;
+      ctx.strokeStyle = isHybrid ? "rgba(139, 30, 30, 0.45)" : DRAFTING_THEME.swingStepStroke;
+      ctx.setLineDash(isHybrid ? [6, 3] : []);
+      ctx.lineJoin = "miter";
+      ctx.lineCap = "square";
+      ctx.beginPath();
+
+      const firstPoint = swingPoints[0];
+      let currScreen = worldToScreen(
+        firstPoint.gridCol * baseUnit,
+        priceToWorldY(firstPoint.price)
+      );
+      ctx.moveTo(currScreen.x, currScreen.y);
+
+      for (let i = 1; i < swingPoints.length; i++) {
+        const prevPoint = swingPoints[i - 1];
+        const nextPoint = swingPoints[i];
+
+        const nextWorldX = nextPoint.gridCol * baseUnit;
+        const prevWorldY = priceToWorldY(prevPoint.price);
+        const nextWorldY = priceToWorldY(nextPoint.price);
+
+        const cornerScreen = worldToScreen(nextWorldX, prevWorldY);
+        ctx.lineTo(cornerScreen.x, cornerScreen.y);
+
+        const nextScreen = worldToScreen(nextWorldX, nextWorldY);
+        ctx.lineTo(nextScreen.x, nextScreen.y);
+
+        currScreen = nextScreen;
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Swing Vertex Nodes (Dynamic continuous price projection)
+      swingPoints.forEach((pt) => {
+        const sPos = worldToScreen(pt.gridCol * baseUnit, priceToWorldY(pt.price));
+        if (sPos.x < -50 || sPos.x > width + 50 || sPos.y < -50 || sPos.y > height + 50) return;
+
+        const nodeSize = isHybrid ? 5 : 6;
+        ctx.fillStyle = pt.type === "SWING_HIGH" ? (isHybrid ? "rgba(46, 125, 50, 0.70)" : "#2E7D32") : (isHybrid ? "rgba(198, 40, 40, 0.70)" : "#C62828");
+        ctx.fillRect(sPos.x - nodeSize / 2, sPos.y - nodeSize / 2, nodeSize, nodeSize);
+        ctx.strokeStyle = "#FFFFFF";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sPos.x - nodeSize / 2, sPos.y - nodeSize / 2, nodeSize, nodeSize);
+
+        if (chartMode === "SWING_STEP") {
+          ctx.fillStyle = "#1E2A24";
+          ctx.font = "600 10px 'Courier New', monospace";
+          const dynamicRow = Math.round((pt.price - basePrice) / safePricePerUnit);
+          const tag = `[${pt.gridCol},${dynamicRow}] \u20B9${pt.price.toLocaleString("en-IN")}`;
+          const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
+          ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
+        }
+      });
+      ctx.restore();
+    }
+
+    // 3. Japanese Candlesticks
     if (
       (chartMode === "CANDLESTICK" || chartMode === "HYBRID_CANDLE_SWING") &&
       visibleCandles.length > 0
@@ -567,69 +631,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.restore();
     }
 
-    // 4. Gann Right-Angle Swing Steps (GAMMA-P0-02 Dynamic Continuous Price Remediation)
-    if (
-      (chartMode === "SWING_STEP" || chartMode === "HYBRID_CANDLE_SWING") &&
-      swingPoints.length > 0
-    ) {
-      ctx.save();
-      ctx.lineWidth = chartMode === "HYBRID_CANDLE_SWING" ? 2.8 : 2.5;
-      ctx.strokeStyle =
-        chartMode === "HYBRID_CANDLE_SWING"
-          ? "rgba(139, 30, 30, 0.88)"
-          : DRAFTING_THEME.swingStepStroke;
-      ctx.lineJoin = "miter";
-      ctx.lineCap = "square";
-      ctx.beginPath();
 
-      const firstPoint = swingPoints[0];
-      let currScreen = worldToScreen(
-        firstPoint.gridCol * baseUnit,
-        priceToWorldY(firstPoint.price)
-      );
-      ctx.moveTo(currScreen.x, currScreen.y);
-
-      for (let i = 1; i < swingPoints.length; i++) {
-        const prevPoint = swingPoints[i - 1];
-        const nextPoint = swingPoints[i];
-
-        const nextWorldX = nextPoint.gridCol * baseUnit;
-        const prevWorldY = priceToWorldY(prevPoint.price);
-        const nextWorldY = priceToWorldY(nextPoint.price);
-
-        const cornerScreen = worldToScreen(nextWorldX, prevWorldY);
-        ctx.lineTo(cornerScreen.x, cornerScreen.y);
-
-        const nextScreen = worldToScreen(nextWorldX, nextWorldY);
-        ctx.lineTo(nextScreen.x, nextScreen.y);
-
-        currScreen = nextScreen;
-      }
-      ctx.stroke();
-
-      // Swing Vertex Nodes (Dynamic continuous price projection)
-      swingPoints.forEach((pt) => {
-        const sPos = worldToScreen(pt.gridCol * baseUnit, priceToWorldY(pt.price));
-        if (sPos.x < -50 || sPos.x > width + 50 || sPos.y < -50 || sPos.y > height + 50) return;
-
-        const nodeSize = 6;
-        ctx.fillStyle = pt.type === "SWING_HIGH" ? "#2E7D32" : "#C62828";
-        ctx.fillRect(sPos.x - nodeSize / 2, sPos.y - nodeSize / 2, nodeSize, nodeSize);
-        ctx.strokeStyle = "#FFFFFF";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(sPos.x - nodeSize / 2, sPos.y - nodeSize / 2, nodeSize, nodeSize);
-
-        if (chartMode === "SWING_STEP") {
-          ctx.fillStyle = "#1E2A24";
-          ctx.font = "600 10px 'Courier New', monospace";
-          const dynamicRow = Math.round((pt.price - basePrice) / safePricePerUnit);
-          const tag = `[${pt.gridCol},${dynamicRow}] \u20B9${pt.price.toLocaleString("en-IN")}`;
-          const offsetY = pt.type === "SWING_HIGH" ? -10 : 16;
-          ctx.fillText(tag, sPos.x + 8, sPos.y + offsetY);
-        }
-      });
-      ctx.restore();
-    }
 
     // 4.5. Dynamic +10% Upper Ceiling & Headroom Guideline
     // Sets the upper price scale bound to maxHigh * 1.10 and dynamically elongates whenever a new high is made.

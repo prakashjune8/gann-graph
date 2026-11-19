@@ -229,8 +229,8 @@ export const useGridState = create<GridState>((set, get) => ({
     return audit;
   },
 
-  // Default to HYBRID_CANDLE_SWING for multi-perspective geometric analysis
-  chartMode: "HYBRID_CANDLE_SWING",
+  // Default to clean CANDLESTICK mode for initial view; user can toggle Hybrid, OHLC, or Swing Steps
+  chartMode: "CANDLESTICK",
   showPatterns: true,
   showVolumeBars: true,
 
