@@ -43,6 +43,32 @@ DEFAULT_ARCHIVE_DIR = DEFAULT_VAULT_ROOT / "02_PROCESSED_ARCHIVE"
 DEFAULT_FAILED_DIR = DEFAULT_VAULT_ROOT / "03_FAILED_OR_SKIPPED"
 DEFAULT_BACKUP_DIR = DEFAULT_VAULT_ROOT / "05_BACKUPS"
 
+
+def resolve_vault_db_path(vault_root: Optional[Path] = None) -> Optional[Path]:
+    """
+    Resolves the active DuckDB database file across primary external vault
+    and bundled project fallback paths with zero configuration.
+    """
+    candidates = []
+    if vault_root:
+        candidates.append(Path(vault_root) / "04_VAULT_DB" / "gann_market_data.duckdb")
+        candidates.append(Path(vault_root) / "gann_market_data.duckdb")
+    candidates.append(DEFAULT_DUCKDB_PATH)
+    try:
+        candidates.append(Path(__file__).resolve().parent / "gann_market_data.duckdb")
+    except Exception:
+        pass
+    candidates.append(Path.cwd() / "src" / "modules" / "data-injection" / "gann_market_data.duckdb")
+    candidates.append(Path.cwd() / "gann_market_data.duckdb")
+
+    for c in candidates:
+        try:
+            if c and c.exists() and c.is_file():
+                return c
+        except (OSError, PermissionError):
+            pass
+    return None
+
 REQUIRED_SUBFOLDERS = [
     "01_DROP_INBOX/nifty_index",
     "01_DROP_INBOX/nse_bhavcopy",
@@ -630,15 +656,14 @@ def query_vault_candles(
     sorted ascending by timestamp. Handles zero-OHL normalization and
     returns standard JSON-serializable list of candle dictionaries.
     """
-    root = Path(vault_root)
-    db_file = root / "04_VAULT_DB" / "gann_market_data.duckdb"
+    db_file = resolve_vault_db_path(vault_root)
 
-    if not db_file.exists():
+    if not db_file or not db_file.exists():
         return {
             "success": False,
             "candles": [],
             "totalCount": 0,
-            "message": f"Vault database not found at {db_file}"
+            "message": f"Vault database not found at {db_file or vault_root}"
         }
 
     if duckdb is None:
@@ -714,15 +739,14 @@ def list_vault_series(vault_root: Path = DEFAULT_VAULT_ROOT) -> Dict[str, Any]:
     Scans the master DuckDB vault and returns distinct instruments/series
     available for charting, strictly filtering out GOLD, SILVER, and BULLION.
     """
-    root = Path(vault_root)
-    db_file = root / "04_VAULT_DB" / "gann_market_data.duckdb"
+    db_file = resolve_vault_db_path(vault_root)
 
-    if not db_file.exists():
+    if not db_file or not db_file.exists():
         return {
             "success": False,
             "series": [],
             "totalCount": 0,
-            "message": f"Vault database not found at {db_file}"
+            "message": f"Vault database not found at {db_file or vault_root}"
         }
 
     if duckdb is None:
