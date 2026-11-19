@@ -202,59 +202,69 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const roundPanY = Math.round(pan.y);
 
     // 1. Hardware Pattern Blit via Offscreen Master Tile with Fractional Drift Compensation (GAMMA-P0-01)
-    const exactTileW = majorUnit * zoom * dpr;
-    const tile = getGridTile(zoom, dpr);
-    const physicalTileW = tile.width || Math.max(8, Math.round(exactTileW));
-    const scaleComp = exactTileW / physicalTileW;
+    // Strictly culled to Quadrant I (+x >= 0, +y >= 0) anchored at origin (0, 0)
+    ctx.fillStyle = DRAFTING_THEME.paperBackground;
+    ctx.fillRect(0, 0, width, height);
 
-    ctx.save();
-    ctx.scale(scaleComp, scaleComp);
+    const q1Left = Math.max(0, roundPanX);
+    const q1Bottom = Math.min(height, roundPanY);
+    const q1Width = Math.max(0, width - q1Left);
+    const q1Height = Math.max(0, q1Bottom);
 
-    const pattern = ctx.createPattern(tile, "repeat");
-    if (pattern) {
-      if (pattern.setTransform) {
-        const matrix = new DOMMatrix()
-          .translate(roundPanX / scaleComp, roundPanY / scaleComp)
-          .scale(1 / dpr, 1 / dpr);
-        pattern.setTransform(matrix);
-        ctx.fillStyle = pattern;
-        ctx.fillRect(0, 0, width / scaleComp, height / scaleComp);
-      } else {
-        ctx.save();
-        ctx.translate(roundPanX / scaleComp, roundPanY / scaleComp);
-        ctx.scale(1 / dpr, 1 / dpr);
-        ctx.fillStyle = pattern;
-        ctx.fillRect(
-          -roundPanX / scaleComp,
-          -roundPanY / scaleComp,
-          (width * dpr) / scaleComp,
-          (height * dpr) / scaleComp
-        );
-        ctx.restore();
+    if (q1Width > 0 && q1Height > 0) {
+      const exactTileW = majorUnit * zoom * dpr;
+      const tile = getGridTile(zoom, dpr);
+      const physicalTileW = tile.width || Math.max(8, Math.round(exactTileW));
+      const scaleComp = exactTileW / physicalTileW;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(q1Left, 0, q1Width, q1Height);
+      ctx.clip();
+
+      ctx.scale(scaleComp, scaleComp);
+
+      const pattern = ctx.createPattern(tile, "repeat");
+      if (pattern) {
+        if (pattern.setTransform) {
+          const matrix = new DOMMatrix()
+            .translate(roundPanX / scaleComp, roundPanY / scaleComp)
+            .scale(1 / dpr, 1 / dpr);
+          pattern.setTransform(matrix);
+          ctx.fillStyle = pattern;
+          ctx.fillRect(0, 0, width / scaleComp, height / scaleComp);
+        } else {
+          ctx.save();
+          ctx.translate(roundPanX / scaleComp, roundPanY / scaleComp);
+          ctx.scale(1 / dpr, 1 / dpr);
+          ctx.fillStyle = pattern;
+          ctx.fillRect(
+            -roundPanX / scaleComp,
+            -roundPanY / scaleComp,
+            (width * dpr) / scaleComp,
+            (height * dpr) / scaleComp
+          );
+          ctx.restore();
+        }
       }
-    } else {
-      ctx.fillStyle = DRAFTING_THEME.paperBackground;
-      ctx.fillRect(0, 0, width / scaleComp, height / scaleComp);
+      ctx.restore();
     }
-    ctx.restore();
 
     // 2. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price) - Integer Clamped (2.0px stroke)
-    // No negative Y-axis: vertical Y axis line stops at axisY (Y = 0)
+    // Strictly bounded to Quadrant I: X-axis runs rightward from axisX; Y-axis runs downward to axisY
     ctx.lineWidth = 2.0;
     ctx.strokeStyle = DRAFTING_THEME.axisLine;
     ctx.beginPath();
     const axisY = roundPanY;
-    if (axisY >= 0 && axisY <= height) {
-      ctx.moveTo(0, axisY);
+    const axisX = roundPanX;
+    const startAxisX = Math.max(0, axisX);
+    if (axisY >= 0 && axisY <= height && startAxisX < width) {
+      ctx.moveTo(startAxisX, axisY);
       ctx.lineTo(width, axisY);
     }
-    const axisX = roundPanX;
-    if (axisX >= 0 && axisX <= width) {
-      const yAxisBottom = axisY >= 0 ? Math.min(height, axisY) : 0;
-      if (yAxisBottom > 0) {
-        ctx.moveTo(axisX, 0);
-        ctx.lineTo(axisX, yAxisBottom);
-      }
+    if (axisX >= 0 && axisX <= width && axisY > 0) {
+      ctx.moveTo(axisX, 0);
+      ctx.lineTo(axisX, Math.min(height, axisY));
     }
     ctx.stroke();
 
@@ -389,6 +399,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
           visibleCandles = [];
         }
       }
+      // Strict Quadrant I Culling: Cull any candle with gridCol < 0 or negative price
+      visibleCandles = visibleCandles.filter((c) => c.gridCol >= 0 && c.low >= 0);
     }
 
     // 1. Volume Histogram Bars
@@ -434,9 +446,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
 
     // 2. Gann Right-Angle Swing Steps (Rendered behind candlesticks in HYBRID mode so wicks/bodies are never obscured)
+    // Strictly culled to Quadrant I: gridCol >= 0, price >= 0
+    const validSwings = swingPoints.filter((pt) => pt.gridCol >= 0 && pt.price >= 0);
     if (
       (chartMode === "SWING_STEP" || chartMode === "HYBRID_CANDLE_SWING") &&
-      swingPoints.length > 0
+      validSwings.length > 0
     ) {
       ctx.save();
       const isHybrid = chartMode === "HYBRID_CANDLE_SWING";
@@ -447,16 +461,16 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.lineCap = "square";
       ctx.beginPath();
 
-      const firstPoint = swingPoints[0];
+      const firstPoint = validSwings[0];
       let currScreen = worldToScreen(
         firstPoint.gridCol * baseUnit,
         priceToWorldY(firstPoint.price)
       );
       ctx.moveTo(currScreen.x, currScreen.y);
 
-      for (let i = 1; i < swingPoints.length; i++) {
-        const prevPoint = swingPoints[i - 1];
-        const nextPoint = swingPoints[i];
+      for (let i = 1; i < validSwings.length; i++) {
+        const prevPoint = validSwings[i - 1];
+        const nextPoint = validSwings[i];
 
         const nextWorldX = nextPoint.gridCol * baseUnit;
         const prevWorldY = priceToWorldY(prevPoint.price);
@@ -474,7 +488,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       ctx.setLineDash([]);
 
       // Swing Vertex Nodes (Dynamic continuous price projection)
-      swingPoints.forEach((pt) => {
+      validSwings.forEach((pt) => {
         const sPos = worldToScreen(pt.gridCol * baseUnit, priceToWorldY(pt.price));
         if (sPos.x < -50 || sPos.x > width + 50 || sPos.y < -50 || sPos.y > height + 50) return;
 
@@ -894,7 +908,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      for (let col = startCol; col <= endCol; col++) {
+      const effectiveStartCol = Math.max(0, startCol);
+      for (let col = effectiveStartCol; col <= endCol; col++) {
         const sx = Math.round(pan.x + col * scaledBase) + 0.5;
         if (sx < mainLeft || sx > mainRight) continue;
 
@@ -920,7 +935,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
     }
 
-    // 4. BOTTOM TIME TRACK (X-AXIS)
+    // 4. BOTTOM TIME TRACK (X-AXIS - Strictly positive X >= 0, no negative time columns)
     if (showBottomAxis) {
       ctx.fillStyle = rulerBg;
       ctx.fillRect(mainLeft, mainBottom, mainRight - mainLeft, bottomRulerHeight);
@@ -933,7 +948,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      for (let col = startCol; col <= endCol; col++) {
+      const effectiveStartCol = Math.max(0, startCol);
+      for (let col = effectiveStartCol; col <= endCol; col++) {
         const sx = Math.round(pan.x + col * scaledBase) + 0.5;
         if (sx < mainLeft || sx > mainRight) continue;
 
@@ -1087,22 +1103,25 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     ctx.save();
 
-    // 2. Render Full-Screen Snapped Dashed Lines (Strict integer pixel center with 0.5 offset)
+    // 2. Render Snapped Dashed Lines Strictly within Quadrant I (+x >= 0, +y >= 0)
     ctx.lineWidth = 1.0;
     ctx.strokeStyle = "rgba(55, 71, 79, 0.85)";
     ctx.setLineDash([4, 4]);
 
-    ctx.beginPath();
-    ctx.moveTo(cx + 0.5, 0);
-    ctx.lineTo(cx + 0.5, height);
-    ctx.stroke();
-    newDirtyRects.push({ x: cx - 2, y: 0, w: 5, h: height });
+    const lineBottom = Math.min(height, Math.round(pan.y));
+    const lineLeft = Math.max(0, Math.round(pan.x));
 
     ctx.beginPath();
-    ctx.moveTo(0, cy + 0.5);
+    ctx.moveTo(cx + 0.5, 0);
+    ctx.lineTo(cx + 0.5, lineBottom);
+    ctx.stroke();
+    newDirtyRects.push({ x: cx - 2, y: 0, w: 5, h: lineBottom });
+
+    ctx.beginPath();
+    ctx.moveTo(lineLeft, cy + 0.5);
     ctx.lineTo(width, cy + 0.5);
     ctx.stroke();
-    newDirtyRects.push({ x: 0, y: cy - 2, w: width, h: 5 });
+    newDirtyRects.push({ x: lineLeft, y: cy - 2, w: Math.max(0, width - lineLeft), h: 5 });
 
     // 3. Precision Drafting Reticle Target (Circle + 4 Brackets)
     ctx.setLineDash([]);
@@ -1532,7 +1551,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
       const isNearCandle = nearestCandle && minColDiff <= 4;
       const date = isNearCandle ? nearestCandle.timestamp : "";
-      const gridCol = isNearCandle ? nearestCandle.gridCol : clickedCol;
+      const gridCol = Math.max(0, isNearCandle ? nearestCandle.gridCol : clickedCol);
 
       if (activeSeedTool === "PICK_LOWEST") {
         const price = isNearCandle ? nearestCandle.low : Math.round(clickedPrice * 100) / 100;

@@ -13,6 +13,30 @@ if (typeof window !== "undefined") {
   }
 }
 
+/**
+ * Clamps camera pan strictly to Quadrant I (+x >= 0, +y >= 0) anchored at origin (0, 0).
+ * Prevents camera pan from exposing negative time columns (x < 0) or negative price rows (y < 0).
+ */
+export function clampPanToQuadrant1(
+  pan: Point2D,
+  _screenWidth: number,
+  screenHeight: number,
+  showLeftAxis: boolean = true,
+  showBottomAxis: boolean = true
+): Point2D {
+  const leftOffset = showLeftAxis ? 84 : 0;
+  const bottomOffset = showBottomAxis ? 32 : 0;
+  // In screen space:
+  // screenX = pan.x + worldX * zoom. For worldX >= 0, screenX >= pan.x.
+  // To prevent worldX < 0 from appearing right of left ruler, pan.x cannot exceed leftOffset:
+  const clampedX = Math.min(leftOffset, Math.round(pan.x));
+  // screenY = pan.y - worldY * zoom. For worldY >= 0, screenY <= pan.y.
+  // To prevent worldY < 0 from appearing above bottom ruler, pan.y cannot drop below (screenHeight - bottomOffset):
+  const minPanY = Math.round(screenHeight - bottomOffset);
+  const clampedY = Math.max(minPanY, Math.round(pan.y));
+  return { x: clampedX, y: clampedY };
+}
+
 // Generates rich sample multi-session data with classic Japanese candlestick patterns & swing pivots
 function generateSampleCandleDataset(basePrice = 0, pricePerUnit = 25.0): {
   candles: CandleData[];
@@ -214,7 +238,7 @@ export interface GridState {
 }
 
 export const useGridState = create<GridState>((set, get) => ({
-  pan: { x: 220, y: 560 },
+  pan: { x: 84, y: 868 },
   zoom: 1.0,
   minZoom: 0.15,
   maxZoom: 6.0,
@@ -293,8 +317,9 @@ export const useGridState = create<GridState>((set, get) => ({
   },
 
   panHorizontal: (deltaX: number) => {
-    const { pan, autoFitY, fitViewportToActiveCandles, setPan } = get();
-    const nextPanX = Math.round(pan.x + deltaX);
+    const { pan, autoFitY, fitViewportToActiveCandles, setPan, showLeftAxis } = get();
+    const leftOffset = showLeftAxis ? 84 : 0;
+    const nextPanX = Math.min(leftOffset, Math.round(pan.x + deltaX));
     if (autoFitY) {
       fitViewportToActiveCandles(nextPanX);
     } else {
@@ -303,8 +328,9 @@ export const useGridState = create<GridState>((set, get) => ({
   },
 
   setPanX: (targetPanX: number) => {
-    const { pan, autoFitY, fitViewportToActiveCandles, setPan } = get();
-    const nextPanX = Math.round(targetPanX);
+    const { pan, autoFitY, fitViewportToActiveCandles, setPan, showLeftAxis } = get();
+    const leftOffset = showLeftAxis ? 84 : 0;
+    const nextPanX = Math.min(leftOffset, Math.round(targetPanX));
     if (autoFitY) {
       fitViewportToActiveCandles(nextPanX);
     } else {
@@ -317,25 +343,27 @@ export const useGridState = create<GridState>((set, get) => ({
   setActiveSeedTool: (tool) => set({ activeSeedTool: tool }),
   clearManualSeeds: () => set({ lowestSeed: null, highestSeed: null, activeSeedTool: "NONE" }),
 
-  setPan: (pan) =>
-    set({
-      pan: {
-        x: Math.round(pan.x),
-        y: Math.round(pan.y),
-      },
-    }),
+  setPan: (pan) => {
+    const { screenWidth, screenHeight, showLeftAxis, showBottomAxis } = get();
+    const clamped = clampPanToQuadrant1(pan, screenWidth, screenHeight, showLeftAxis, showBottomAxis);
+    set({ pan: clamped });
+  },
 
-  panBy: (deltaX, deltaY) =>
-    set((state) => ({
-      pan: {
-        x: Math.round(state.pan.x + deltaX),
-        y: Math.round(state.pan.y + deltaY),
-      },
-    })),
+  panBy: (deltaX, deltaY) => {
+    const { pan, screenWidth, screenHeight, showLeftAxis, showBottomAxis } = get();
+    const clamped = clampPanToQuadrant1(
+      { x: pan.x + deltaX, y: pan.y + deltaY },
+      screenWidth,
+      screenHeight,
+      showLeftAxis,
+      showBottomAxis
+    );
+    set({ pan: clamped });
+  },
 
   // Strictly isotropic cursor-centered zoom: X and Y scale by identical factor with safety bounds
   zoomAt: (screenX, screenY, zoomFactorDelta) => {
-    const { pan, zoom, minZoom, maxZoom } = get();
+    const { pan, zoom, minZoom, maxZoom, screenWidth, screenHeight, showLeftAxis, showBottomAxis } = get();
     // Safety clamp: Prevent negative factors, inversion, or wild leaps (>1.25 or <0.80) in a single frame
     const safeFactor = Math.max(0.80, Math.min(1.25, zoomFactorDelta));
     const nextZoom = Math.min(Math.max(zoom * safeFactor, minZoom), maxZoom);
@@ -348,9 +376,17 @@ export const useGridState = create<GridState>((set, get) => ({
     const nextPanX = Math.round(screenX - worldX * nextZoom);
     const nextPanY = Math.round(screenY + worldY * nextZoom);
 
+    const clamped = clampPanToQuadrant1(
+      { x: nextPanX, y: nextPanY },
+      screenWidth,
+      screenHeight,
+      showLeftAxis,
+      showBottomAxis
+    );
+
     set({
       zoom: nextZoom,
-      pan: { x: nextPanX, y: nextPanY },
+      pan: clamped,
     });
   },
 
@@ -359,9 +395,12 @@ export const useGridState = create<GridState>((set, get) => ({
     set({ zoom: Math.min(Math.max(newZoom, minZoom), maxZoom) });
   },
 
-  resetView: (canvasWidth = 1440, canvasHeight = 900) => {
+  resetView: (_canvasWidth = 1440, canvasHeight = 900) => {
+    const { showLeftAxis, showBottomAxis } = get();
+    const leftOffset = showLeftAxis ? 84 : 0;
+    const bottomOffset = showBottomAxis ? 32 : 0;
     set({
-      pan: { x: Math.round(canvasWidth * 0.12), y: Math.round(canvasHeight * 0.75) },
+      pan: { x: leftOffset, y: Math.round(canvasHeight - bottomOffset) },
       zoom: 1.0,
     });
   },
@@ -374,6 +413,7 @@ export const useGridState = create<GridState>((set, get) => ({
       majorUnit,
       zoom,
       priceToWorldY,
+      showLeftAxis,
       showRightAxis,
       showTopAxis,
       showBottomAxis,
@@ -390,10 +430,11 @@ export const useGridState = create<GridState>((set, get) => ({
 
     // Buffer of 3.5 major units (approx. 336px) on right edge
     const rightRulerOffset = showRightAxis ? 88 : 0;
+    const leftOffset = showLeftAxis ? 84 : 0;
     const futureBuffer = 3.5 * majorUnit * zoom + rightRulerOffset;
 
     const latestWorldX = maxCol * baseUnit;
-    const targetPanX = Math.round(viewportWidth - futureBuffer - latestWorldX * zoom);
+    const targetPanX = Math.min(leftOffset, Math.round(viewportWidth - futureBuffer - latestWorldX * zoom));
 
     if (get().autoFitY) {
       get().fitViewportToActiveCandles(targetPanX);
@@ -409,11 +450,16 @@ export const useGridState = create<GridState>((set, get) => ({
       targetPanY = centerY + latestWorldY * zoom;
     }
 
+    const clamped = clampPanToQuadrant1(
+      { x: targetPanX, y: targetPanY },
+      viewportWidth,
+      viewportHeight,
+      showLeftAxis,
+      showBottomAxis
+    );
+
     set({
-      pan: {
-        x: targetPanX,
-        y: Math.round(targetPanY),
-      },
+      pan: clamped,
     });
   },
 
@@ -426,8 +472,8 @@ export const useGridState = create<GridState>((set, get) => ({
 
     set({
       cursorScreen: { x: rx, y: ry },
-      cursorWorld: { x: Math.round(world.x), y: Math.round(world.y) },
-      cursorGrid: { col: grid.col, row: grid.row },
+      cursorWorld: { x: Math.max(0, Math.round(world.x)), y: Math.max(0, Math.round(world.y)) },
+      cursorGrid: { col: Math.max(0, grid.col), row: Math.max(0, grid.row) },
     });
   },
 
@@ -642,7 +688,13 @@ export const useGridState = create<GridState>((set, get) => ({
     const centerPrice = (localCeiling + localMinLow) / 2;
     const centerY = (screenH + topOffset - bottomOffset) / 2;
     const centerWorldY = (centerPrice / safeScale) * baseUnit;
-    const targetPanY = Math.round(centerY + centerWorldY * zoomVal);
+    const rawTargetPanY = Math.round(centerY + centerWorldY * zoomVal);
+    const minPanY = Math.round(screenH - bottomOffset);
+    const targetPanY = Math.max(minPanY, rawTargetPanY);
+
+    const { showLeftAxis } = get();
+    const leftOffset = showLeftAxis ? 84 : 0;
+    const safePanX = Math.min(leftOffset, currentPanX);
 
     set({
       pricePerUnit: safeScale,
@@ -651,7 +703,7 @@ export const useGridState = create<GridState>((set, get) => ({
       visibleHighestPrice: localMaxHigh,
       visibleLowestPrice: localMinLow,
       pan: {
-        x: currentPanX,
+        x: safePanX,
         y: targetPanY,
       },
     });
@@ -748,11 +800,12 @@ export const useGridState = create<GridState>((set, get) => ({
     return ((price - (basePrice || 0)) / safeDivisor) * baseUnit;
   },
 
-  // World Y (in pixels) -> Price (in Rupees)
+  // World Y (in pixels) -> Price (in Rupees) - Strictly non-negative (>= 0)
   worldYToPrice: (worldY: number) => {
     const { basePrice, pricePerUnit, baseUnit } = get();
     const safeDivisor = Math.min(10000, Math.max(0.0001, pricePerUnit));
-    return Math.max(0, (basePrice || 0) + (worldY / baseUnit) * safeDivisor);
+    const safeWorldY = Math.max(0, worldY);
+    return Math.max(0, (basePrice || 0) + (safeWorldY / baseUnit) * safeDivisor);
   },
 
   // Alias for worldYToPrice
@@ -760,13 +813,15 @@ export const useGridState = create<GridState>((set, get) => ({
     return get().worldYToPrice(worldY);
   },
 
-  // Snap continuous world coordinates to nearest K&E baseUnit intersection using strict integer multiplier
+  // Snap continuous world coordinates strictly within Quadrant I (+x >= 0, +y >= 0)
   snapWorldToGrid: (worldX, worldY) => {
     const { baseUnit } = get();
-    const snappedX = Math.round(worldX / baseUnit) * baseUnit;
-    const snappedY = Math.round(worldY / baseUnit) * baseUnit;
-    const col = Math.round(snappedX / baseUnit);
-    const row = Math.round(snappedY / baseUnit);
+    const safeWorldX = Math.max(0, worldX);
+    const safeWorldY = Math.max(0, worldY);
+    const snappedX = Math.round(safeWorldX / baseUnit) * baseUnit;
+    const snappedY = Math.round(safeWorldY / baseUnit) * baseUnit;
+    const col = Math.max(0, Math.round(snappedX / baseUnit));
+    const row = Math.max(0, Math.round(snappedY / baseUnit));
     return {
       snappedX,
       snappedY,
