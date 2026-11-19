@@ -100,13 +100,13 @@ class DataDisplayCoordinatorEngine {
       };
     }
 
-    // 1. Calculate min/max extremes
+    // 1. Calculate clean min/max extremes (strictly ignoring NaN, null, or non-positive values)
     let minPrice = Infinity;
     let maxPrice = -Infinity;
     for (let i = 0; i < candles.length; i++) {
       const c = candles[i];
-      if (c.low < minPrice) minPrice = c.low;
-      if (c.high > maxPrice) maxPrice = c.high;
+      if (Number.isFinite(c.low) && c.low > 0 && c.low < minPrice) minPrice = c.low;
+      if (Number.isFinite(c.high) && c.high > 0 && c.high > maxPrice) maxPrice = c.high;
     }
 
     // 2. Dispatch to central Zustand store

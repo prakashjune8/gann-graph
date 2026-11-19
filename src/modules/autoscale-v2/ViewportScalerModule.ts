@@ -12,6 +12,7 @@
 
 import { GannModule } from "../../ModuleRegistry";
 import { IGridBridge } from "../../core-bridge/GridBridge";
+import { useGridState } from "../../store/useGridState";
 import { extractGenesisNodes } from "./HistoricSeedEngine";
 import { getExpandedVibration } from "./OctaveMultiplier";
 import { velocityToPricePerUnit } from "./PixelTranslator";
@@ -71,13 +72,16 @@ function evaluateViewportScale(bridge: IGridBridge, height: number): void {
   let candleMin = Infinity;
   for (let i = 0; i < activeCandles.length; i++) {
     const c = activeCandles[i];
-    if (c.high > candleMax) candleMax = c.high;
-    if (c.low < candleMin) candleMin = c.low;
+    if (Number.isFinite(c.high) && c.high > 0 && c.high > candleMax) candleMax = c.high;
+    if (Number.isFinite(c.low) && c.low > 0 && c.low < candleMin) candleMin = c.low;
   }
 
   const visibleMaxPrice = Number.isFinite(candleMax) && candleMax > 0 ? candleMax : 22520;
   const visibleMinPrice = Number.isFinite(candleMin) && candleMin > 0 ? candleMin : 21380;
   const visibleRange = Math.max(10, visibleMaxPrice - visibleMinPrice);
+
+  // Synchronize active-window extremes with central store
+  useGridState.getState().setVisiblePriceExtremes(visibleMaxPrice, visibleMinPrice);
 
   // =========================================================================
   // 2. VIEWPORT GAP SCANNER & HYSTERESIS SUPPRESSION PROTOCOL

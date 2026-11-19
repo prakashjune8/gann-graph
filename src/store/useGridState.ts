@@ -135,10 +135,12 @@ export interface GridState {
   swingPoints: SwingPoint[];
   patternCount: number; // Memoized count of flagged candlestick patterns (Audit 3.3)
 
-  // Dynamic Price Ceiling & Headroom (+10% above highest price)
-  highestPrice: number;
-  lowestPrice: number;
-  priceCeiling: number; // Dynamic +10% Upper Ceiling (maxHigh * 1.10)
+  // Dynamic Price Ceiling & Headroom (+10% above dataset highest price)
+  highestPrice: number;       // Dataset-wide origin high
+  lowestPrice: number;        // Dataset-wide origin low (>= 0)
+  priceCeiling: number;       // Dynamic +10% Upper Ceiling (datasetMax * 1.10)
+  visibleHighestPrice: number;// Active-window visible high
+  visibleLowestPrice: number; // Active-window visible low (>= 0)
 
   // Actions
   setPan: (pan: Point2D) => void;
@@ -164,6 +166,7 @@ export interface GridState {
   // Data Actions
   setTimePerUnit: (timePerUnit: string) => void;
   setPriceCeiling: (ceiling: number) => void;
+  setVisiblePriceExtremes: (high: number, low: number) => void;
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => void;
   setCandles: (candles: CandleData[]) => void;
   setDataset: (candles: CandleData[]) => void;
@@ -248,6 +251,8 @@ export const useGridState = create<GridState>((set, get) => ({
   highestPrice: 22520,
   lowestPrice: 21380,
   priceCeiling: 24772, // 22520 * 1.10 (+10% Headroom)
+  visibleHighestPrice: 22520,
+  visibleLowestPrice: 21380,
 
   setPan: (pan) =>
     set({
@@ -372,6 +377,11 @@ export const useGridState = create<GridState>((set, get) => ({
 
   setTimePerUnit: (timePerUnit) => set({ timePerUnit }),
   setPriceCeiling: (ceiling) => set({ priceCeiling: Math.max(0, ceiling) }),
+  setVisiblePriceExtremes: (high, low) =>
+    set({
+      visibleHighestPrice: Math.max(0, high),
+      visibleLowestPrice: Math.max(0, low),
+    }),
 
   // Gann Harmonic Auto-Scale Calibrator (Sprint 1 & Auto-Scale V2 Anchor Patch)
   calibratePriceScale: (input: CandleData[] | number, maintainCenterPrice?: number) => {
@@ -405,8 +415,8 @@ export const useGridState = create<GridState>((set, get) => ({
 
     for (let i = 0; i < candles.length; i++) {
       const c = candles[i];
-      if (c.high > maxPrice) maxPrice = c.high;
-      if (c.low < minPrice) minPrice = c.low;
+      if (Number.isFinite(c.high) && c.high > 0 && c.high > maxPrice) maxPrice = c.high;
+      if (Number.isFinite(c.low) && c.low > 0 && c.low < minPrice) minPrice = c.low;
     }
 
     if (!Number.isFinite(maxPrice) || !Number.isFinite(minPrice) || maxPrice <= 0) {
@@ -470,8 +480,8 @@ export const useGridState = create<GridState>((set, get) => ({
     let minPrice = Infinity;
     for (let i = 0; i < candles.length; i++) {
       const c = candles[i];
-      if (c.high > maxPrice) maxPrice = c.high;
-      if (c.low < minPrice) minPrice = c.low;
+      if (Number.isFinite(c.high) && c.high > 0 && c.high > maxPrice) maxPrice = c.high;
+      if (Number.isFinite(c.low) && c.low > 0 && c.low < minPrice) minPrice = c.low;
     }
     if (candles.length > 0) {
       get().calibratePriceScale(candles);
@@ -479,11 +489,12 @@ export const useGridState = create<GridState>((set, get) => ({
     const count = candles.filter((c) => c.pattern).length;
     const updates: Partial<GridState> = { candles, patternCount: count };
     if (Number.isFinite(maxPrice) && maxPrice > 0) {
-      const currentHighest = get().highestPrice;
-      const effectiveHigh = Math.max(maxPrice, currentHighest || 0);
-      updates.highestPrice = effectiveHigh;
-      updates.lowestPrice = Math.max(0, minPrice);
-      updates.priceCeiling = Math.round(effectiveHigh * 1.10 * 100) / 100;
+      const safeLowest = Math.max(0, Number.isFinite(minPrice) ? minPrice : 0);
+      updates.highestPrice = maxPrice;
+      updates.lowestPrice = safeLowest;
+      updates.priceCeiling = Math.round(maxPrice * 1.10 * 100) / 100;
+      updates.visibleHighestPrice = maxPrice;
+      updates.visibleLowestPrice = safeLowest;
     }
     set(updates);
   },
@@ -492,8 +503,8 @@ export const useGridState = create<GridState>((set, get) => ({
     let minPrice = Infinity;
     for (let i = 0; i < candles.length; i++) {
       const c = candles[i];
-      if (c.high > maxPrice) maxPrice = c.high;
-      if (c.low < minPrice) minPrice = c.low;
+      if (Number.isFinite(c.high) && c.high > 0 && c.high > maxPrice) maxPrice = c.high;
+      if (Number.isFinite(c.low) && c.low > 0 && c.low < minPrice) minPrice = c.low;
     }
     if (candles.length > 0) {
       get().calibratePriceScale(candles);
@@ -501,11 +512,12 @@ export const useGridState = create<GridState>((set, get) => ({
     const count = candles.filter((c) => c.pattern).length;
     const updates: Partial<GridState> = { candles, patternCount: count };
     if (Number.isFinite(maxPrice) && maxPrice > 0) {
-      const currentHighest = get().highestPrice;
-      const effectiveHigh = Math.max(maxPrice, currentHighest || 0);
-      updates.highestPrice = effectiveHigh;
-      updates.lowestPrice = Math.max(0, minPrice);
-      updates.priceCeiling = Math.round(effectiveHigh * 1.10 * 100) / 100;
+      const safeLowest = Math.max(0, Number.isFinite(minPrice) ? minPrice : 0);
+      updates.highestPrice = maxPrice;
+      updates.lowestPrice = safeLowest;
+      updates.priceCeiling = Math.round(maxPrice * 1.10 * 100) / 100;
+      updates.visibleHighestPrice = maxPrice;
+      updates.visibleLowestPrice = safeLowest;
     }
     set(updates);
   },

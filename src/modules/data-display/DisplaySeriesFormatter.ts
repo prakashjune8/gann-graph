@@ -181,21 +181,54 @@ export function extractDisplaySwings(
   // 1. Try fractal Gann swing detection with exact mathematical parity to autoscale-v2
   const gannNodes = detectGannSwings(candles, timeframe);
   if (gannNodes && gannNodes.length > 0) {
-    return gannNodes.map((node, idx) => ({
-      id: `disp-sw-${node.type.toLowerCase()}-${idx + 1}`,
-      timeStr: node.date,
-      price: node.price,
-      gridCol: node.col,
-      gridRow: Math.round((node.price - basePrice) / safePPU),
-      type: node.type === "HH" ? "SWING_HIGH" : "SWING_LOW",
-      label: `${node.type === "HH" ? "H" : "L"}${idx + 1}`,
-    }));
+    let lastConfirmedHigh = -Infinity;
+    let lastConfirmedLow = Infinity;
+    let hCount = 0;
+    let lCount = 0;
+
+    return gannNodes.map((node, idx) => {
+      let label = "";
+
+      if (node.type === "HH") {
+        hCount++;
+        if (Number.isFinite(lastConfirmedHigh) && lastConfirmedHigh > 0) {
+          const isHigher = node.price >= lastConfirmedHigh;
+          label = `${isHigher ? "HH" : "LH"}${hCount}`;
+        } else {
+          label = `H${hCount}`;
+        }
+        lastConfirmedHigh = node.price;
+      } else {
+        lCount++;
+        if (Number.isFinite(lastConfirmedLow) && lastConfirmedLow < Infinity) {
+          const isHigher = node.price >= lastConfirmedLow;
+          label = `${isHigher ? "HL" : "LL"}${lCount}`;
+        } else {
+          label = `L${lCount}`;
+        }
+        lastConfirmedLow = node.price;
+      }
+
+      return {
+        id: `disp-sw-${node.type.toLowerCase()}-${idx + 1}`,
+        timeStr: node.date,
+        price: node.price,
+        gridCol: node.col,
+        gridRow: Math.round((node.price - basePrice) / safePPU),
+        type: node.type === "HH" ? "SWING_HIGH" : "SWING_LOW",
+        label,
+      };
+    });
   }
 
   // 2. Fallback to 2-Bar Swing Indicator for very short datasets
   const swings: SwingPoint[] = [];
   let isUpTrend: boolean | null = null;
   let extremeBar = candles[0];
+  let fallbackLastHigh = -Infinity;
+  let fallbackLastLow = Infinity;
+  let fbHighCount = 0;
+  let fbLowCount = 0;
 
   for (let i = 1; i < candles.length; i++) {
     const prev = candles[i - 1];
@@ -218,7 +251,11 @@ export function extractDisplaySwings(
       }
       // 2-Bar Down Reversal
       if (curr.low < prev.low && i >= 2 && prev.low < candles[i - 2].low) {
+        fbHighCount++;
         const row = Math.round((extremeBar.high - basePrice) / safePPU);
+        const isHigher = Number.isFinite(fallbackLastHigh) && fallbackLastHigh > 0
+          ? extremeBar.high >= fallbackLastHigh
+          : true;
         swings.push({
           id: `disp-sw-high-${swings.length + 1}`,
           timeStr: extremeBar.timestamp,
@@ -226,8 +263,9 @@ export function extractDisplaySwings(
           gridCol: extremeBar.gridCol,
           gridRow: row,
           type: "SWING_HIGH",
-          label: `H${swings.length + 1}`,
+          label: `${isHigher ? "HH" : "LH"}${fbHighCount}`,
         });
+        fallbackLastHigh = extremeBar.high;
         isUpTrend = false;
         extremeBar = curr;
       }
@@ -237,7 +275,11 @@ export function extractDisplaySwings(
       }
       // 2-Bar Up Reversal
       if (curr.high > prev.high && i >= 2 && prev.high > candles[i - 2].high) {
+        fbLowCount++;
         const row = Math.round((extremeBar.low - basePrice) / safePPU);
+        const isHigher = Number.isFinite(fallbackLastLow) && fallbackLastLow < Infinity
+          ? extremeBar.low >= fallbackLastLow
+          : false;
         swings.push({
           id: `disp-sw-low-${swings.length + 1}`,
           timeStr: extremeBar.timestamp,
@@ -245,8 +287,9 @@ export function extractDisplaySwings(
           gridCol: extremeBar.gridCol,
           gridRow: row,
           type: "SWING_LOW",
-          label: `L${swings.length + 1}`,
+          label: `${isHigher ? "HL" : "LL"}${fbLowCount}`,
         });
+        fallbackLastLow = extremeBar.low;
         isUpTrend = true;
         extremeBar = curr;
       }

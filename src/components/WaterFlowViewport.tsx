@@ -82,11 +82,12 @@ export const WaterFlowViewport: React.FC = () => {
 
     for (let i = 0; i < candles.length; i += step) {
       const c = candles[i];
-      if (c.low < minP) minP = c.low;
-      if (c.high > maxP) maxP = c.high;
+      if (Number.isFinite(c.low) && c.low > 0 && c.low < minP) minP = c.low;
+      if (Number.isFinite(c.high) && c.high > 0 && c.high > maxP) maxP = c.high;
     }
     const effMax = priceCeiling > 0 ? priceCeiling : maxP * 1.10;
-    const pRange = Math.max(1, effMax - minP);
+    const safeMin = Number.isFinite(minP) && minP > 0 ? minP : 100;
+    const pRange = Math.max(1, effMax - safeMin);
 
     const pts: string[] = [];
     for (let i = 0; i < candles.length; i += step) {

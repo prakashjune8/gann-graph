@@ -311,7 +311,7 @@ export function extractGenesisNodes(
     };
   }
 
-  // 1. Locate absolute ATL and ATH
+  // 1. Locate absolute ATL and ATH (Strictly ignoring null, NaN, or non-positive values)
   let minLow = Infinity;
   let maxHigh = -Infinity;
   let atlIdx = 0;
@@ -319,18 +319,22 @@ export function extractGenesisNodes(
 
   for (let i = 0; i < fullDataset.length; i++) {
     const c = fullDataset[i];
-    if (c.low < minLow) {
+    if (Number.isFinite(c.low) && c.low > 0 && c.low < minLow) {
       minLow = c.low;
       atlIdx = i;
     }
-    if (c.high > maxHigh) {
+    if (Number.isFinite(c.high) && c.high > 0 && c.high > maxHigh) {
       maxHigh = c.high;
       athIdx = i;
     }
   }
 
-  const atlCandle = fullDataset[atlIdx];
-  const athCandle = fullDataset[athIdx];
+  // Safety fallback if no positive extremes found
+  if (!Number.isFinite(minLow) || minLow <= 0) minLow = 100;
+  if (!Number.isFinite(maxHigh) || maxHigh <= 0) maxHigh = 200;
+
+  const atlCandle = fullDataset[atlIdx] || { low: minLow, timestamp: "", gridCol: 0 };
+  const athCandle = fullDataset[athIdx] || { high: maxHigh, timestamp: "", gridCol: 0 };
 
   // Strictly sanitize discrete column index to prevent raw JS Date millisecond timestamps (e.g. 1.71 Trillion)
   const safeAtlCol = Number.isFinite(atlCandle.gridCol) && atlCandle.gridCol < 10000000
@@ -364,57 +368,72 @@ export function extractGenesisNodes(
     velocityFromAnchor: 0,
   };
 
-  // 2. BULL SEED: Slice from ATL forward. Run detectGannSwings(..., timeframe).
-  // Extract first 3 subsequent Higher Lows (LL nodes with prices > ATL).
+  // 2. BULL SEED: Slice from ATL forward in strict chronological time.
+  // Extract first 3 subsequent Higher Lows (LL nodes strictly higher than prior confirmed low).
+  // Invariant: Never label a point as a higher low relative to a prior low when its price is lower than that prior low.
   const bullSlice = fullDataset.slice(atlIdx);
   const bullSwings = detectGannSwings(bullSlice, timeframe);
-  // Filter for valid Higher Lows (LL nodes with price > ATL.price)
-  const candidateLows = bullSwings.filter((s) => s.type === "LL" && s.price > atlNode.price);
 
   const bullNodes: GenesisNode[] = [];
   const bullLabels = ["L1", "L2", "L3"];
+  let priorConfirmedLow = atlNode.price;
 
-  for (let i = 0; i < Math.min(3, candidateLows.length); i++) {
-    const swing = candidateLows[i];
-    // Strict column math: deltaT = node.col - anchor.col (strictly discrete column indices, never timestamps)
-    const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 ? swing.col : (safeAtlCol + i + 1);
-    const deltaT = Math.max(1, swingCol - safeAtlCol);
-    const priceDelta = Math.abs(swing.price - atlNode.price);
-    bullNodes.push({
-      ...swing,
-      col: swingCol,
-      label: bullLabels[i],
-      indexInDataset: atlIdx + bullSlice.findIndex((c) => c.gridCol === swing.col),
-      deltaTFromAnchor: deltaT,
-      priceDeltaFromAnchor: priceDelta,
-      velocityFromAnchor: priceDelta / deltaT,
-    });
+  for (const swing of bullSwings) {
+    if (swing.type === "LL" && swing.price > priorConfirmedLow) {
+      const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 
+        ? swing.col 
+        : (safeAtlCol + bullNodes.length + 1);
+      const deltaT = Math.max(1, swingCol - safeAtlCol);
+      const priceDelta = Math.abs(swing.price - atlNode.price);
+      
+      bullNodes.push({
+        ...swing,
+        col: swingCol,
+        label: bullLabels[bullNodes.length],
+        indexInDataset: atlIdx + bullSlice.findIndex((c) => c.gridCol === swing.col),
+        deltaTFromAnchor: deltaT,
+        priceDeltaFromAnchor: priceDelta,
+        velocityFromAnchor: priceDelta / deltaT,
+      });
+
+      // Advance confirmed low threshold strictly monotonically
+      priorConfirmedLow = swing.price;
+      if (bullNodes.length >= 3) break;
+    }
   }
 
-  // 3. BEAR SEED: Slice from ATH forward. Run detectGannSwings(..., timeframe).
-  // Extract first 3 subsequent Lower Highs (HH nodes with prices < ATH).
+  // 3. BEAR SEED: Slice from ATH forward in strict chronological time.
+  // Extract first 3 subsequent Lower Highs (HH nodes strictly lower than prior confirmed high).
+  // Invariant: Never label a point as a lower high relative to a prior high when its price is higher than that prior high.
   const bearSlice = fullDataset.slice(athIdx);
   const bearSwings = detectGannSwings(bearSlice, timeframe);
-  const candidateHighs = bearSwings.filter((s) => s.type === "HH" && s.price < athNode.price);
 
   const bearNodes: GenesisNode[] = [];
   const bearLabels = ["H1", "H2", "H3"];
+  let priorConfirmedHigh = athNode.price;
 
-  for (let i = 0; i < Math.min(3, candidateHighs.length); i++) {
-    const swing = candidateHighs[i];
-    // Strict column math: deltaT = node.col - anchor.col (strictly discrete column indices, never timestamps)
-    const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 ? swing.col : (safeAthCol + i + 1);
-    const deltaT = Math.max(1, swingCol - safeAthCol);
-    const priceDelta = Math.abs(athNode.price - swing.price);
-    bearNodes.push({
-      ...swing,
-      col: swingCol,
-      label: bearLabels[i],
-      indexInDataset: athIdx + bearSlice.findIndex((c) => c.gridCol === swing.col),
-      deltaTFromAnchor: deltaT,
-      priceDeltaFromAnchor: priceDelta,
-      velocityFromAnchor: priceDelta / deltaT,
-    });
+  for (const swing of bearSwings) {
+    if (swing.type === "HH" && swing.price < priorConfirmedHigh) {
+      const swingCol = Number.isFinite(swing.col) && swing.col < 10000000 
+        ? swing.col 
+        : (safeAthCol + bearNodes.length + 1);
+      const deltaT = Math.max(1, swingCol - safeAthCol);
+      const priceDelta = Math.abs(athNode.price - swing.price);
+      
+      bearNodes.push({
+        ...swing,
+        col: swingCol,
+        label: bearLabels[bearNodes.length],
+        indexInDataset: athIdx + bearSlice.findIndex((c) => c.gridCol === swing.col),
+        deltaTFromAnchor: deltaT,
+        priceDeltaFromAnchor: priceDelta,
+        velocityFromAnchor: priceDelta / deltaT,
+      });
+
+      // Advance confirmed high threshold strictly monotonically
+      priorConfirmedHigh = swing.price;
+      if (bearNodes.length >= 3) break;
+    }
   }
 
   // 4. DYNAMIC BULL VELOCITY SWITCH (IMMATURE DATASET TIERING)
