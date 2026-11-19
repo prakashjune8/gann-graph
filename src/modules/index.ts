@@ -6,7 +6,6 @@
  */
 
 import { ModuleRegistry } from "../ModuleRegistry";
-import { EquilibriumModule } from "./equilibrium/EquilibriumModule";
 import { OctaveHarmonicsModule } from "./octave-harmonics/OctaveHarmonicsModule";
 import { SwingVisualizerModule } from "./autoscale-v2/SwingVisualizerModule";
 import { GenesisVisualizerModule } from "./autoscale-v2/GenesisVisualizerModule";
@@ -17,7 +16,6 @@ export * as DataDisplay from "./data-display";
 
 export function initializeSandboxModules(): void {
   // Register active feature modules
-  ModuleRegistry.register(EquilibriumModule, true);
   ModuleRegistry.register(OctaveHarmonicsModule, true);
   ModuleRegistry.register(SwingVisualizerModule, true);
   ModuleRegistry.register(GenesisVisualizerModule, true);
