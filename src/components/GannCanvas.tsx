@@ -239,6 +239,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     ctx.restore();
 
     // 2. Cartesian Zero-Axes (X = 0 Time, Y = 0 Price) - Integer Clamped (2.0px stroke)
+    // No negative Y-axis: vertical Y axis line stops at axisY (Y = 0)
     ctx.lineWidth = 2.0;
     ctx.strokeStyle = DRAFTING_THEME.axisLine;
     ctx.beginPath();
@@ -249,8 +250,11 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     }
     const axisX = roundPanX;
     if (axisX >= 0 && axisX <= width) {
-      ctx.moveTo(axisX, 0);
-      ctx.lineTo(axisX, height);
+      const yAxisBottom = axisY >= 0 ? Math.min(height, axisY) : 0;
+      if (yAxisBottom > 0) {
+        ctx.moveTo(axisX, 0);
+        ctx.lineTo(axisX, yAxisBottom);
+      }
     }
     ctx.stroke();
 
@@ -777,92 +781,102 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     const charcoal = "#2C2C2C";
     const gannGreen = "rgba(74, 120, 102, 0.85)";
 
-    // 1. LEFT PRICE TRACK (Y-AXIS)
+    // 1. LEFT PRICE TRACK (Y-AXIS - Strictly positive Y >= 0, no negative Y axis)
     if (showLeftAxis) {
-      ctx.fillStyle = rulerBg;
-      ctx.fillRect(0, 0, leftRulerWidth, height);
-      ctx.strokeStyle = rulerBorder;
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(Math.round(leftRulerWidth) + 0.5, 0);
-      ctx.lineTo(Math.round(leftRulerWidth) + 0.5, height);
-      ctx.stroke();
-
-      ctx.textBaseline = "middle";
-      for (let row = startRow; row <= endRow; row++) {
-        const sy = Math.round(pan.y - row * scaledBase) + 0.5;
-        if (sy < mainTop || sy > mainBottom) continue;
-
-        const isMajor = row % subdivisions === 0;
-        const isIntermediate = row % 2 === 0;
-        const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
-
-        ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
-        ctx.lineWidth = isMajor ? 1.2 : 0.8;
+      const axisY = Math.round(pan.y);
+      const rulerBottom = axisY >= 0 ? Math.min(height, axisY) : 0;
+      if (rulerBottom > 0) {
+        ctx.fillStyle = rulerBg;
+        ctx.fillRect(0, 0, leftRulerWidth, rulerBottom);
+        ctx.strokeStyle = rulerBorder;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.moveTo(leftRulerWidth, sy);
-        ctx.lineTo(leftRulerWidth - tickLength, sy);
+        ctx.moveTo(Math.round(leftRulerWidth) + 0.5, 0);
+        ctx.lineTo(Math.round(leftRulerWidth) + 0.5, rulerBottom);
         ctx.stroke();
 
-        if (isMajor) {
-          const priceVal = Math.max(0, (basePrice || 0) + row * safePricePerUnit);
-          const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
-          const inchStr = `${row / subdivisions}"`;
+        ctx.textBaseline = "middle";
+        const effectiveStartRow = Math.max(0, startRow);
+        for (let row = effectiveStartRow; row <= endRow; row++) {
+          const sy = Math.round(pan.y - row * scaledBase) + 0.5;
+          if (sy < mainTop || sy > mainBottom || sy > rulerBottom) continue;
 
-          ctx.fillStyle = charcoal;
-          ctx.font = "bold 10px 'Courier New', Courier, monospace";
-          ctx.textAlign = "left";
-          ctx.fillText(priceStr, 6, sy);
+          const isMajor = row % subdivisions === 0;
+          const isIntermediate = row % 2 === 0;
+          const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-          ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
-          ctx.font = "8px 'Courier New', Courier, monospace";
-          ctx.textAlign = "right";
-          ctx.fillText(inchStr, leftRulerWidth - 10, sy);
+          ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
+          ctx.lineWidth = isMajor ? 1.2 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(leftRulerWidth, sy);
+          ctx.lineTo(leftRulerWidth - tickLength, sy);
+          ctx.stroke();
+
+          if (isMajor) {
+            const priceVal = Math.max(0, (basePrice || 0) + row * safePricePerUnit);
+            const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
+            const inchStr = `${row / subdivisions}"`;
+
+            ctx.fillStyle = charcoal;
+            ctx.font = "bold 10px 'Courier New', Courier, monospace";
+            ctx.textAlign = "left";
+            ctx.fillText(priceStr, 6, sy);
+
+            ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
+            ctx.font = "8px 'Courier New', Courier, monospace";
+            ctx.textAlign = "right";
+            ctx.fillText(inchStr, leftRulerWidth - 10, sy);
+          }
         }
       }
     }
 
-    // 2. RIGHT PRICE TRACK (Y-AXIS)
+    // 2. RIGHT PRICE TRACK (Y-AXIS - Strictly positive Y >= 0, no negative Y axis)
     if (showRightAxis) {
-      ctx.fillStyle = rulerBg;
-      ctx.fillRect(mainRight, 0, rightRulerWidth, height);
-      ctx.strokeStyle = rulerBorder;
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(Math.round(mainRight) + 0.5, 0);
-      ctx.lineTo(Math.round(mainRight) + 0.5, height);
-      ctx.stroke();
-
-      ctx.textBaseline = "middle";
-      for (let row = startRow; row <= endRow; row++) {
-        const sy = Math.round(pan.y - row * scaledBase) + 0.5;
-        if (sy < mainTop || sy > mainBottom) continue;
-
-        const isMajor = row % subdivisions === 0;
-        const isIntermediate = row % 2 === 0;
-        const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
-
-        ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
-        ctx.lineWidth = isMajor ? 1.2 : 0.8;
+      const axisY = Math.round(pan.y);
+      const rulerBottom = axisY >= 0 ? Math.min(height, axisY) : 0;
+      if (rulerBottom > 0) {
+        ctx.fillStyle = rulerBg;
+        ctx.fillRect(mainRight, 0, rightRulerWidth, rulerBottom);
+        ctx.strokeStyle = rulerBorder;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.moveTo(mainRight, sy);
-        ctx.lineTo(mainRight + tickLength, sy);
+        ctx.moveTo(Math.round(mainRight) + 0.5, 0);
+        ctx.lineTo(Math.round(mainRight) + 0.5, rulerBottom);
         ctx.stroke();
 
-        if (isMajor) {
-          const priceVal = Math.max(0, (basePrice || 0) + row * safePricePerUnit);
-          const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
-          const inchStr = `${row / subdivisions}"`;
+        ctx.textBaseline = "middle";
+        const effectiveStartRow = Math.max(0, startRow);
+        for (let row = effectiveStartRow; row <= endRow; row++) {
+          const sy = Math.round(pan.y - row * scaledBase) + 0.5;
+          if (sy < mainTop || sy > mainBottom || sy > rulerBottom) continue;
 
-          ctx.fillStyle = charcoal;
-          ctx.font = "bold 10px 'Courier New', Courier, monospace";
-          ctx.textAlign = "left";
-          ctx.fillText(priceStr, mainRight + 10, sy);
+          const isMajor = row % subdivisions === 0;
+          const isIntermediate = row % 2 === 0;
+          const tickLength = isMajor ? 8 : isIntermediate ? 5 : 3;
 
-          ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
-          ctx.font = "8px 'Courier New', Courier, monospace";
-          ctx.textAlign = "right";
-          ctx.fillText(inchStr, width - 8, sy);
+          ctx.strokeStyle = isMajor ? charcoal : "rgba(74, 120, 102, 0.60)";
+          ctx.lineWidth = isMajor ? 1.2 : 0.8;
+          ctx.beginPath();
+          ctx.moveTo(mainRight, sy);
+          ctx.lineTo(mainRight + tickLength, sy);
+          ctx.stroke();
+
+          if (isMajor) {
+            const priceVal = Math.max(0, (basePrice || 0) + row * safePricePerUnit);
+            const priceStr = `\u20B9${priceVal.toLocaleString("en-IN")}`;
+            const inchStr = `${row / subdivisions}"`;
+
+            ctx.fillStyle = charcoal;
+            ctx.font = "bold 10px 'Courier New', Courier, monospace";
+            ctx.textAlign = "left";
+            ctx.fillText(priceStr, mainRight + 10, sy);
+
+            ctx.fillStyle = "rgba(74, 120, 102, 0.70)";
+            ctx.font = "8px 'Courier New', Courier, monospace";
+            ctx.textAlign = "right";
+            ctx.fillText(inchStr, width - 8, sy);
+          }
         }
       }
     }
@@ -1141,8 +1155,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     newDirtyRects.push({ x: bX - 3, y: bY - 14, w: bW + 6, h: bH + 6 });
 
     // 5. Live Snapped Indicators on Axis Tracks
-    // Left Price Indicator
-    if (showLeftAxis && cy >= mainTop && cy <= mainBottom) {
+    // Left Price Indicator (strictly positive Y >= 0, no -y axis)
+    if (showLeftAxis && cy >= mainTop && cy <= mainBottom && cy <= Math.round(pan.y)) {
       const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
       ctx.fillStyle = "#1B5E20";
       ctx.fillRect(0, cy - 9, leftRulerWidth, 18);
@@ -1153,8 +1167,8 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       newDirtyRects.push({ x: 0, y: cy - 11, w: leftRulerWidth + 1, h: 22 });
     }
 
-    // Right Price Indicator
-    if (showRightAxis && cy >= mainTop && cy <= mainBottom) {
+    // Right Price Indicator (strictly positive Y >= 0, no -y axis)
+    if (showRightAxis && cy >= mainTop && cy <= mainBottom && cy <= Math.round(pan.y)) {
       const pStr = `\u20B9${snappedPrice.toLocaleString("en-IN")}`;
       ctx.fillStyle = "#1B5E20";
       ctx.fillRect(mainRight, cy - 9, rightRulerWidth, 18);
