@@ -147,7 +147,10 @@ def bundle_executable():
         f"--specpath={ROOT_DIR}",
         f"--paths={os.path.join(ROOT_DIR, 'src', 'modules', 'data-injection')}",
         "--hidden-import=vault_manager",
+        "--hidden-import=zerodha_sync",
         "--hidden-import=duckdb",
+        "--hidden-import=pandas",
+        "--hidden-import=numpy",
         "--add-data=dist;dist",
         os.path.join(ROOT_DIR, "desktop_app.py")
     ]

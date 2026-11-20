@@ -1,5 +1,8 @@
 import os
 import sys
+import time
+import atexit
+import threading
 import webview
 from webview import settings as webview_settings
 
@@ -149,6 +152,98 @@ class VaultJsApi:
             return {"success": False, "series": [], "totalCount": 0, "message": "Vault manager backend is offline."}
         return vault_manager.list_vault_series()
 
+    def check_vault_update(self, symbol="NIFTY 50", current_count=0, current_latest_ts=None):
+        if not vault_manager:
+            return {
+                "success": False,
+                "hasUpdate": False,
+                "symbol": symbol,
+                "currentCount": current_count,
+                "newCount": current_count,
+                "message": "Vault manager backend is offline."
+            }
+        return vault_manager.check_vault_update(symbol, int(current_count or 0), current_latest_ts)
+
+    def process_drop_inbox(self):
+        if not vault_manager:
+            return {"success": False, "processed": 0, "rows": 0, "message": "Vault manager backend is offline."}
+        return vault_manager.process_drop_inbox()
+
+    def get_series_version(self, symbol="NIFTY 50"):
+        if not vault_manager:
+            return {"success": False, "symbol": symbol, "rowCount": 0, "latestTimestamp": None}
+        return vault_manager.get_series_version(symbol)
+
+
+def perform_startup_sync():
+    """
+    1/3: App Opening / Startup Sync
+    Scans 01_DROP_INBOX on launch, ingests any new market data into DuckDB,
+    and ensures clean zero-OHL normalization & bullion exclusion.
+    """
+    if not vault_manager:
+        return
+    try:
+        print("[VAULT-SCHEDULE] Point 1/3: App Opening Sync starting...", flush=True)
+        res = vault_manager.process_drop_inbox()
+        print(f"[VAULT-SCHEDULE] App Opening Sync completed: {res.get('message', '')}", flush=True)
+    except Exception as e:
+        print(f"[VAULT-SCHEDULE] Error during startup sync: {e}", flush=True)
+
+
+def start_3hour_scheduler(window_ref):
+    """
+    2/3: Every 3 Hours Scheduled Sync
+    Runs a low-resource background daemon that waits 3 hours (10,800 seconds)
+    between checks, keeping CPU and RAM consumption minimal.
+    """
+    THREE_HOURS_SECONDS = 3 * 60 * 60
+
+    def _3hour_worker():
+        while True:
+            try:
+                time.sleep(THREE_HOURS_SECONDS)
+                print("[VAULT-SCHEDULE] Point 2/3: 3-Hour Scheduled Vault Sync commencing...", flush=True)
+                if vault_manager:
+                    res = vault_manager.process_drop_inbox()
+                    print(f"[VAULT-SCHEDULE] 3-Hour Sync completed: {res.get('message', '')}", flush=True)
+                    # Notify frontend if window is open
+                    if window_ref and window_ref[0]:
+                        try:
+                            window_ref[0].evaluate_js(
+                                "if (window.DataDisplayCoordinator) { window.DataDisplayCoordinator.pollVaultUpdates(); }"
+                            )
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"[VAULT-SCHEDULE] 3-Hour sync exception: {e}", flush=True)
+
+    t = threading.Thread(target=_3hour_worker, daemon=True, name="3HourVaultSyncDaemon")
+    t.start()
+
+
+_has_performed_close_sync = False
+
+def perform_close_sync():
+    """
+    3/3: App Closing / Shutdown Sync
+    Runs a final sync on 01_DROP_INBOX when the application is closing,
+    persisting any pending data before clean exit.
+    """
+    global _has_performed_close_sync
+    if _has_performed_close_sync:
+        return
+    _has_performed_close_sync = True
+
+    if not vault_manager:
+        return
+    try:
+        print("[VAULT-SCHEDULE] Point 3/3: App Closing / Shutdown Sync starting...", flush=True)
+        res = vault_manager.process_drop_inbox()
+        print(f"[VAULT-SCHEDULE] App Closing Sync completed: {res.get('message', '')}", flush=True)
+    except Exception as e:
+        print(f"[VAULT-SCHEDULE] Error during closing sync: {e}", flush=True)
+
 
 def get_entry_url():
     """
@@ -178,6 +273,12 @@ def get_entry_url():
 
 
 def main():
+    # 1/3: App Opening / Startup Sync
+    perform_startup_sync()
+
+    # Register 3/3: App Closing / Shutdown Sync
+    atexit.register(perform_close_sync)
+
     entry_url = get_entry_url()
     vault_api = VaultJsApi()
     window = webview.create_window(
@@ -191,6 +292,17 @@ def main():
         js_api=vault_api,
     )
     vault_api.set_window(window)
+
+    # Window closing hook for clean shutdown
+    def on_window_closing():
+        perform_close_sync()
+
+    window.events.closing += on_window_closing
+
+    # 2/3: Start 3-Hour Scheduled Sync Daemon
+    window_container = [window]
+    start_3hour_scheduler(window_container)
+
     webview.start(gui="edgechromium")
 
 

@@ -28,7 +28,12 @@ import {
   extractDisplaySwings,
 } from "./DisplaySeriesFormatter";
 import { aggregateMarketBars } from "./TimeframeAggregator";
-import { queryVaultCandles, listVaultSeries } from "./VaultQueryBridge";
+import {
+  queryVaultCandles,
+  listVaultSeries,
+  checkVaultUpdate,
+  VaultUpdateCheckResult,
+} from "./VaultQueryBridge";
 
 class DataDisplayCoordinatorEngine {
   private state: DisplayCoordinatorState = {
@@ -45,6 +50,9 @@ class DataDisplayCoordinatorEngine {
   };
 
   private listeners: Set<(state: DisplayCoordinatorState) => void> = new Set();
+  private autoSyncTimer: any = null;
+  private badgeDismissTimer: any = null;
+  private isSyncing: boolean = false;
 
   public subscribe(listener: (state: DisplayCoordinatorState) => void): () => void {
     this.listeners.add(listener);
@@ -293,6 +301,8 @@ class DataDisplayCoordinatorEngine {
       this.notify();
     }
 
+    // Schedule: 1/3 Startup check is complete. Now schedule 2/3: Every 3 hours.
+    this.startScheduledSync();
     return res;
   }
 
@@ -371,6 +381,147 @@ class DataDisplayCoordinatorEngine {
       true
     );
   }
+
+  public readonly THREE_HOURS_MS = 3 * 60 * 60 * 1000; // 10,800,000 ms (3 hours)
+
+  /**
+   * Schedules a low-resource sync check once every 3 hours after app opening.
+   * Completely eradicates continuous short-interval polling to preserve RAM and CPU.
+   */
+  public startScheduledSync(intervalMs: number = 3 * 60 * 60 * 1000): void {
+    if (this.autoSyncTimer) return;
+    this.autoSyncTimer = setInterval(() => {
+      console.info("[DataDisplayCoordinator] Triggering scheduled 3-hour vault sync...");
+      this.pollVaultUpdates().catch((err) => {
+        console.warn("[DataDisplayCoordinator] Error in scheduled 3-hour vault sync:", err);
+      });
+    }, intervalMs);
+  }
+
+  /**
+   * Alias for backward compatibility.
+   */
+  public startAutoSyncPolling(intervalMs?: number): void {
+    this.startScheduledSync(intervalMs || this.THREE_HOURS_MS);
+  }
+
+  /**
+   * Stops the 3-hour scheduled sync timer.
+   */
+  public stopScheduledSync(): void {
+    if (this.autoSyncTimer) {
+      clearInterval(this.autoSyncTimer);
+      this.autoSyncTimer = null;
+    }
+  }
+
+  public stopAutoSyncPolling(): void {
+    this.stopScheduledSync();
+  }
+
+  /**
+   * Executes a lightweight check against the vault backend. If new data is detected
+   * for the active series, smoothly updates the chart.
+   */
+  public async pollVaultUpdates(): Promise<void> {
+    if (this.isSyncing || this.state.isLoading) return;
+    if (!this.state.isVaultActive && this.state.metadata?.source !== "vault") return;
+
+    const symbol = this.state.activeSymbol;
+    const currentCount = this.state.rawBars.length;
+    const currentLatestTs = this.state.metadata?.endDate;
+
+    try {
+      this.isSyncing = true;
+      const checkRes = await checkVaultUpdate(symbol, currentCount, currentLatestTs);
+      if (checkRes.hasUpdate) {
+        console.info(`[AutoSync] New vault data detected for ${symbol}: +${checkRes.newBarsCount} new bars (latest: ${checkRes.latestTimestamp}).`);
+        await this.applyLiveVaultUpdate(checkRes);
+      }
+    } catch (err) {
+      console.warn("[AutoSync] Error during background vault poll:", err);
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Smoothly applies newly detected vault rows to the active chart without resetting the user's
+   * horizontal pan, zoom level, origin (0, 0), or manual lowest/highest seeds.
+   */
+  public async applyLiveVaultUpdate(updateInfo: VaultUpdateCheckResult): Promise<void> {
+    const symbol = this.state.activeSymbol;
+    const timeframe = this.state.activeTimeframe;
+
+    const queryRes = await queryVaultCandles(symbol);
+    if (!queryRes.success || queryRes.candles.length === 0) return;
+
+    this.state.rawBars = queryRes.candles;
+
+    // 1. Multi-timeframe aggregation
+    const aggregatedBars = aggregateMarketBars(queryRes.candles, timeframe);
+
+    // 2. K&E 8x8 Grid Formatting
+    const displayCandles = formatBarsForDisplay(aggregatedBars, timeframe, 2);
+
+    // 3. Gann swing pivots
+    const gridStore = useGridState.getState();
+    const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit, timeframe);
+
+    // 4. Update central Zustand store while preserving user pan, zoom & manual seeds
+    gridStore.setTimePerUnit(timeframe);
+    gridStore.setCandles(displayCandles);
+    gridStore.setSwingPoints(swings);
+
+    // 5. If Auto-Fit Y is enabled, adapt the vertical ceiling and centering smoothly
+    if (gridStore.autoFitY) {
+      gridStore.fitViewportToActiveCandles();
+    }
+
+    const startDate = displayCandles[0]?.timestamp || "N/A";
+    const endDate = displayCandles[displayCandles.length - 1]?.timestamp || "N/A";
+
+    this.state = {
+      ...this.state,
+      displayCandles,
+      displaySwings: swings,
+      metadata: {
+        symbol,
+        timeframe,
+        totalBars: displayCandles.length,
+        startDate,
+        endDate,
+        basePrice: gridStore.basePrice,
+        pricePerUnit: gridStore.pricePerUnit,
+        minPrice: gridStore.lowestPrice,
+        maxPrice: gridStore.highestPrice,
+        source: "vault",
+        lastUpdated: new Date().toISOString(),
+      },
+      statusNotice: `Vault auto-updated: ${displayCandles.length.toLocaleString()} bars (latest: ${endDate})`,
+    };
+    this.notify();
+
+    // 6. Show subtle status badge
+    const newBarsText = updateInfo.newBarsCount > 0 ? `+${updateInfo.newBarsCount} new bars` : "New Data Loaded";
+    gridStore.setVaultSyncBadge({
+      visible: true,
+      text: `⚡ Vault Synced: ${newBarsText} (${updateInfo.latestTimestamp || endDate})`,
+      timestamp: Date.now(),
+    });
+
+    if (this.badgeDismissTimer) clearTimeout(this.badgeDismissTimer);
+    this.badgeDismissTimer = setTimeout(() => {
+      gridStore.setVaultSyncBadge({ visible: false, text: "", timestamp: 0 });
+    }, 4500);
+
+    // 7. Refresh series list in background in case new symbols were dropped
+    this.refreshAvailableSeries().catch(() => {});
+  }
 }
 
 export const DataDisplayCoordinator = new DataDisplayCoordinatorEngine();
+
+if (typeof window !== "undefined") {
+  (window as any).DataDisplayCoordinator = DataDisplayCoordinator;
+}

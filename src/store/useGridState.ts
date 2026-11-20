@@ -174,7 +174,15 @@ export interface GridState {
   // Auto-Fit Y Mode: automatically scales and centers visible candles vertically during horizontal navigation
   autoFitY: boolean;
 
+  // Vault Live Sync Status Badge
+  vaultSyncBadge: {
+    visible: boolean;
+    text: string;
+    timestamp: number;
+  };
+
   // Actions
+  setVaultSyncBadge: (badge: { visible: boolean; text: string; timestamp: number }) => void;
   toggleAutoFitY: () => void;
   setAutoFitY: (enabled: boolean) => void;
   panHorizontal: (deltaX: number) => void;
@@ -300,6 +308,9 @@ export const useGridState = create<GridState>((set, get) => ({
   activeSeedTool: "NONE",
 
   autoFitY: true,
+
+  vaultSyncBadge: { visible: false, text: "", timestamp: 0 },
+  setVaultSyncBadge: (badge) => set({ vaultSyncBadge: badge }),
 
   toggleAutoFitY: () => {
     const nextVal = !get().autoFitY;

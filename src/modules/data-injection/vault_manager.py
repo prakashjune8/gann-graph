@@ -845,6 +845,245 @@ def list_vault_series(vault_root: Path = DEFAULT_VAULT_ROOT) -> Dict[str, Any]:
         }
 
 
+def process_drop_inbox(vault_root: Path = DEFAULT_VAULT_ROOT) -> Dict[str, Any]:
+    """
+    Scans 01_DROP_INBOX and its subdirectories for pending market data files:
+      - NIFTY Historical CSVs/TXTs (01_DROP_INBOX/nifty_index)
+      - NSE Bhavcopy CSVs (01_DROP_INBOX/nse_bhavcopy)
+      - MCX Bhavcopy CSVs (01_DROP_INBOX/mcx_bhavcopy)
+      - Loose CSV/TXT files dropped directly into 01_DROP_INBOX root
+    Normalizes zero-OHL anomalies, strictly enforces Bullion exclusions (rejection of GOLD/SILVER),
+    inserts records into DuckDB with deduplication, and moves ingested files to 02_PROCESSED_ARCHIVE.
+    """
+    root = Path(vault_root)
+    inbox = root / "01_DROP_INBOX"
+    db_file = root / "04_VAULT_DB" / "gann_market_data.duckdb"
+
+    if not inbox.exists():
+        return {"success": False, "processed": 0, "rows": 0, "message": f"Inbox not found at {inbox}"}
+    if not db_file.exists():
+        return {"success": False, "processed": 0, "rows": 0, "message": f"Database file not found at {db_file}"}
+
+    # Find pending files
+    raw_files = list(inbox.rglob("*.csv")) + list(inbox.rglob("*.CSV")) + \
+                list(inbox.rglob("*.txt")) + list(inbox.rglob("*.TXT"))
+    pending_files = sorted(list({p.resolve() for p in raw_files if p.is_file()}))
+
+    if not pending_files:
+        return {"success": True, "processed": 0, "rows": 0, "message": "No pending files found in inbox."}
+
+    logger.info(f"[DROP_INBOX] Found {len(pending_files)} files in inbox. Commencing automated ingestion...")
+
+    # Route loose files placed directly in 01_DROP_INBOX root to appropriate subfolders
+    for pf in list(pending_files):
+        if pf.parent.resolve() == inbox.resolve():
+            dest_subfolder = "nifty_index"
+            try:
+                with open(pf, "r", encoding="utf-8-sig", errors="ignore") as f:
+                    first_line = (f.readline() or "").upper()
+                if "TRADGS" in first_line or "INSTRUMENT" in first_line or ("SYMBOL" in first_line and "SERIES" in first_line):
+                    dest_subfolder = "nse_bhavcopy"
+                elif "MCX" in first_line or any(u in first_line for u in ["CRUDEOIL", "NATURALGAS", "COPPER", "ZINC", "LEAD", "ALUMINIUM"]):
+                    dest_subfolder = "mcx_bhavcopy"
+                elif "DATE" in first_line and ("CLOSE" in first_line or "SHARES" in first_line or "TURNOVER" in first_line):
+                    dest_subfolder = "nifty_index"
+            except Exception:
+                pass
+            target_sub = inbox / dest_subfolder
+            target_sub.mkdir(parents=True, exist_ok=True)
+            new_path = target_sub / pf.name
+            try:
+                shutil.move(str(pf), str(new_path))
+                logger.info(f"[DROP_INBOX] Routed loose file {pf.name} -> {dest_subfolder}/")
+            except Exception as e:
+                logger.error(f"[DROP_INBOX] Could not route loose file {pf.name}: {e}")
+
+    # Import zerodha_sync engine
+    try:
+        import zerodha_sync
+    except ImportError:
+        try:
+            from . import zerodha_sync
+        except ImportError:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import zerodha_sync
+
+    # Connect to DuckDB with retry to avoid locks
+    conn = None
+    for attempt in range(1, 6):
+        try:
+            conn = duckdb.connect(str(db_file))
+            break
+        except Exception as lock_err:
+            if attempt < 5 and "used by another process" in str(lock_err):
+                time.sleep(0.4 * attempt)
+            else:
+                return {
+                    "success": False,
+                    "processed": 0,
+                    "rows": 0,
+                    "message": f"Could not acquire write connection to DuckDB: {lock_err}"
+                }
+
+    total_processed = 0
+    total_skipped = 0
+    total_rows = 0
+
+    try:
+        # Ingest Nifty Index subfolder
+        nifty_sub = inbox / "nifty_index"
+        if nifty_sub.exists() and any(nifty_sub.iterdir()):
+            res = zerodha_sync.import_nifty_dir(conn, dir_path=str(nifty_sub))
+            total_processed += res.get("processed", 0)
+            total_skipped += res.get("skipped", 0)
+            total_rows += res.get("rows", 0)
+
+        # Ingest NSE Bhavcopy subfolder
+        nse_sub = inbox / "nse_bhavcopy"
+        if nse_sub.exists() and any(nse_sub.iterdir()):
+            res = zerodha_sync.import_nse_bhavcopy(conn, dir_path=str(nse_sub))
+            total_processed += res.get("processed", 0)
+            total_skipped += res.get("skipped", 0)
+            total_rows += res.get("rows", 0)
+
+        # Ingest MCX Bhavcopy subfolder
+        mcx_sub = inbox / "mcx_bhavcopy"
+        if mcx_sub.exists() and any(mcx_sub.iterdir()):
+            res = zerodha_sync.import_mcx_bhavcopy(conn, dir_path=str(mcx_sub))
+            total_processed += res.get("processed", 0)
+            total_skipped += res.get("skipped", 0)
+            total_rows += res.get("rows", 0)
+
+    except Exception as e:
+        logger.error(f"[DROP_INBOX] Error during batch ingestion: {e}")
+        return {
+            "success": False,
+            "processed": total_processed,
+            "skipped": total_skipped,
+            "rows": total_rows,
+            "message": f"Error during ingestion: {e}"
+        }
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    logger.info(
+        f"[DROP_INBOX] Ingestion Complete! Processed: {total_processed} files, "
+        f"Rows: {total_rows:,}, Skipped: {total_skipped}."
+    )
+    return {
+        "success": True,
+        "processed": total_processed,
+        "skipped": total_skipped,
+        "rows": total_rows,
+        "message": f"Successfully ingested {total_processed} files ({total_rows:,} records) into vault."
+    }
+
+
+def get_series_version(
+    symbol: str = "NIFTY 50",
+    vault_root: Path = DEFAULT_VAULT_ROOT
+) -> Dict[str, Any]:
+    """
+    Returns the latest row count and timestamp for a specific symbol in read-only mode.
+    Used for lightweight polling by the frontend chart updater.
+    """
+    db_file = resolve_vault_db_path(vault_root)
+    if not db_file or not db_file.exists() or duckdb is None:
+        return {
+            "success": False,
+            "symbol": symbol,
+            "rowCount": 0,
+            "latestTimestamp": None,
+            "message": "Vault database offline."
+        }
+
+    try:
+        conn = duckdb.connect(str(db_file), read_only=True)
+        row = conn.execute(
+            "SELECT count(*), max(timestamp), min(timestamp) FROM market_data WHERE symbol = ?",
+            [symbol]
+        ).fetchone()
+        conn.close()
+
+        count = int(row[0]) if row and row[0] is not None else 0
+        latest = row[1] if row else None
+        earliest = row[2] if row else None
+
+        latest_str = latest.strftime("%Y-%m-%d") if hasattr(latest, "strftime") else (str(latest)[:10] if latest else None)
+        earliest_str = earliest.strftime("%Y-%m-%d") if hasattr(earliest, "strftime") else (str(earliest)[:10] if earliest else None)
+
+        return {
+            "success": True,
+            "symbol": symbol,
+            "rowCount": count,
+            "latestTimestamp": latest_str,
+            "earliestTimestamp": earliest_str,
+        }
+    except Exception as e:
+        logger.error(f"Error checking series version for {symbol}: {e}")
+        return {
+            "success": False,
+            "symbol": symbol,
+            "rowCount": 0,
+            "latestTimestamp": None,
+            "error": str(e)
+        }
+
+
+def check_vault_update(
+    symbol: str = "NIFTY 50",
+    current_count: int = 0,
+    current_latest_ts: Optional[str] = None,
+    vault_root: Path = DEFAULT_VAULT_ROOT
+) -> Dict[str, Any]:
+    """
+    Checks if new market data files exist in 01_DROP_INBOX (processing them immediately),
+    and determines whether DuckDB has newer rows/bars than currently rendered on screen.
+    """
+    root = Path(vault_root)
+    inbox = root / "01_DROP_INBOX"
+    has_pending = False
+    if inbox.exists():
+        raw_files = list(inbox.rglob("*.csv")) + list(inbox.rglob("*.CSV")) + \
+                    list(inbox.rglob("*.txt")) + list(inbox.rglob("*.TXT"))
+        if len(raw_files) > 0:
+            has_pending = True
+
+    ingested_info = None
+    if has_pending:
+        ingested_info = process_drop_inbox(vault_root)
+
+    ver = get_series_version(symbol, vault_root)
+    new_count = ver.get("rowCount", 0)
+    latest_ts = ver.get("latestTimestamp")
+
+    has_update = False
+    if new_count > current_count and new_count > 0:
+        has_update = True
+    elif latest_ts and current_latest_ts and latest_ts != current_latest_ts:
+        has_update = True
+
+    return {
+        "success": True,
+        "hasUpdate": has_update,
+        "symbol": symbol,
+        "currentCount": current_count,
+        "newCount": new_count,
+        "newBarsCount": max(0, new_count - current_count),
+        "latestTimestamp": latest_ts,
+        "ingestedInfo": ingested_info,
+        "message": (
+            f"Vault checked: {new_count} total bars available."
+            if not has_update
+            else f"New data detected: {new_count} bars (latest: {latest_ts})."
+        )
+    }
+
+
 if __name__ == "__main__":
     status = check_vault_status()
     print(json.dumps(status, indent=2))

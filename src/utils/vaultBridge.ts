@@ -59,6 +59,13 @@ declare global {
           limit?: number | null
         ) => Promise<any>;
         list_vault_series?: () => Promise<any>;
+        check_vault_update?: (
+          symbol?: string,
+          current_count?: number,
+          current_latest_ts?: string | null
+        ) => Promise<any>;
+        process_drop_inbox?: () => Promise<any>;
+        get_series_version?: (symbol?: string) => Promise<any>;
       };
     };
   }

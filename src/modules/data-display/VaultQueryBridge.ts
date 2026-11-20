@@ -190,3 +190,59 @@ export async function queryVaultCandles(
     message: `Retrieved fallback continuous browser series (${sampleData.length} bars).`,
   };
 }
+
+export interface VaultUpdateCheckResult {
+  success: boolean;
+  hasUpdate: boolean;
+  symbol: string;
+  currentCount: number;
+  newCount: number;
+  newBarsCount: number;
+  latestTimestamp?: string;
+  ingestedInfo?: any;
+  message: string;
+}
+
+/**
+ * Checks whether new market data has arrived in 01_DROP_INBOX or DuckDB for the active symbol.
+ */
+export async function checkVaultUpdate(
+  symbol: string = "NIFTY 50",
+  currentCount: number = 0,
+  currentLatestTs?: string
+): Promise<VaultUpdateCheckResult> {
+  if (typeof window !== "undefined" && typeof window.pywebview?.api?.check_vault_update === "function") {
+    try {
+      const res = await window.pywebview.api.check_vault_update(symbol, currentCount, currentLatestTs || null);
+      if (res) return res;
+    } catch (err) {
+      console.warn("[VaultQueryBridge] Error checking vault update:", err);
+    }
+  }
+
+  return {
+    success: true,
+    hasUpdate: false,
+    symbol,
+    currentCount,
+    newCount: currentCount,
+    newBarsCount: 0,
+    latestTimestamp: currentLatestTs,
+    message: "No update detected or browser mode active.",
+  };
+}
+
+/**
+ * Explicitly triggers batch ingestion of any pending files in 01_DROP_INBOX.
+ */
+export async function triggerInboxIngestion(): Promise<{ success: boolean; processed: number; rows: number; message: string }> {
+  if (typeof window !== "undefined" && typeof window.pywebview?.api?.process_drop_inbox === "function") {
+    try {
+      const res = await window.pywebview.api.process_drop_inbox();
+      if (res) return res;
+    } catch (err) {
+      console.warn("[VaultQueryBridge] Error processing drop inbox:", err);
+    }
+  }
+  return { success: false, processed: 0, rows: 0, message: "Native pywebview API unavailable." };
+}

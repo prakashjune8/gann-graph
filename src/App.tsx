@@ -40,8 +40,16 @@ export const App: React.FC = () => {
       }
     };
 
+    const handleBeforeUnload = () => {
+      // 3/3: App Closing / Shutdown Hook
+      if (typeof window !== "undefined" && window.pywebview?.api?.process_drop_inbox) {
+        window.pywebview.api.process_drop_inbox().catch(() => {});
+      }
+    };
+
     if (typeof window !== "undefined") {
       window.addEventListener("pywebviewready", handlePyWebViewReady);
+      window.addEventListener("beforeunload", handleBeforeUnload);
     }
 
     checkStartupVaultHealth();
@@ -49,6 +57,7 @@ export const App: React.FC = () => {
       isMounted = false;
       if (typeof window !== "undefined") {
         window.removeEventListener("pywebviewready", handlePyWebViewReady);
+        window.removeEventListener("beforeunload", handleBeforeUnload);
       }
     };
   }, []);

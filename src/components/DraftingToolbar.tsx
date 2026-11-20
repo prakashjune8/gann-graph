@@ -51,6 +51,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const hasCandles = useGridState((s) => s.candles.length > 0);
   const autoFitY = useGridState((s) => s.autoFitY);
   const toggleAutoFitY = useGridState((s) => s.toggleAutoFitY);
+  const vaultSyncBadge = useGridState((s) => s.vaultSyncBadge);
 
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [lowestDateInput, setLowestDateInput] = useState("");
@@ -214,6 +215,29 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
             <span>
               <strong>{coordinatorState.metadata.symbol}</strong> ({coordinatorState.metadata.totalBars.toLocaleString()} bars)
             </span>
+          </div>
+        )}
+
+        {/* Subtle Live Vault Sync Status Badge */}
+        {vaultSyncBadge.visible && (
+          <div
+            style={{
+              fontSize: "10px",
+              color: "#1B5E20",
+              backgroundColor: "#D7ECD9",
+              padding: "3px 8px",
+              borderRadius: 3,
+              border: "1px solid #2E7D32",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontWeight: "bold",
+              boxShadow: "0 1px 4px rgba(46, 125, 50, 0.25)",
+            }}
+            title="DuckDB master vault detected new dropped data and updated the active chart automatically."
+          >
+            <span style={{ fontSize: "11px" }}>⚡</span>
+            <span>{vaultSyncBadge.text}</span>
           </div>
         )}
       </div>
