@@ -11,8 +11,10 @@ import { SwingVisualizerModule } from "./autoscale-v2/SwingVisualizerModule";
 import { GenesisVisualizerModule } from "./autoscale-v2/GenesisVisualizerModule";
 import { ViewportScalerModule } from "./autoscale-v2/ViewportScalerModule";
 import { DataDisplayModule } from "./data-display/DataDisplayModule";
+import { SutraScaleVibrationModule } from "./sutrascale-vibration/SutraScaleVibrationModule";
 export * as AutoScaleV2 from "./autoscale-v2";
 export * as DataDisplay from "./data-display";
+export * as SutraScale from "./sutrascale-vibration";
 
 export function initializeSandboxModules(): void {
   // Register active feature modules
@@ -21,6 +23,7 @@ export function initializeSandboxModules(): void {
   ModuleRegistry.register(GenesisVisualizerModule, true);
   ModuleRegistry.register(ViewportScalerModule, true);
   ModuleRegistry.register(DataDisplayModule, true);
+  ModuleRegistry.register(SutraScaleVibrationModule, true);
 }
 
 // Automatically initialize default sandbox modules

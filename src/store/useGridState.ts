@@ -174,6 +174,23 @@ export interface GridState {
   // Auto-Fit Y Mode: automatically scales and centers visible candles vertically during horizontal navigation
   autoFitY: boolean;
 
+  // Custom Scale & Vibration Lock State
+  customScaleLocked: boolean;
+  scaleLockMode: "AUTO_FIT" | "CUSTOM" | "VIBRATION_LOCKED";
+  vibrationRay: {
+    originCol: number;
+    originPrice: number;
+    originDate?: string;
+    scale: number;
+    type: "BULL" | "BEAR";
+    active: boolean;
+    touchCount?: number;
+    breachCount?: number;
+    score?: number;
+    touches?: { col: number; price: number; date: string }[];
+    breaches?: { col: number; price: number; date: string }[];
+  } | null;
+
   // Vault Live Sync Status Badge
   vaultSyncBadge: {
     visible: boolean;
@@ -183,6 +200,9 @@ export interface GridState {
 
   // Actions
   setVaultSyncBadge: (badge: { visible: boolean; text: string; timestamp: number }) => void;
+  setCustomScale: (scale: number) => void;
+  setVibrationRay: (ray: GridState["vibrationRay"]) => void;
+  clearVibrationRay: () => void;
   toggleAutoFitY: () => void;
   setAutoFitY: (enabled: boolean) => void;
   panHorizontal: (deltaX: number) => void;
@@ -308,20 +328,58 @@ export const useGridState = create<GridState>((set, get) => ({
   activeSeedTool: "NONE",
 
   autoFitY: true,
+  customScaleLocked: false,
+  scaleLockMode: "AUTO_FIT",
+  vibrationRay: null,
 
   vaultSyncBadge: { visible: false, text: "", timestamp: 0 },
   setVaultSyncBadge: (badge) => set({ vaultSyncBadge: badge }),
 
+  setCustomScale: (scale: number) => {
+    if (!Number.isFinite(scale) || scale <= 0) return;
+    const clampedScale = Math.min(10000, Math.max(0.01, Math.round(scale * 100) / 100));
+    const { visibleHighestPrice, visibleLowestPrice } = get();
+    const centerPrice = Number.isFinite(visibleHighestPrice) && visibleHighestPrice > 0
+      ? (visibleHighestPrice + (visibleLowestPrice || 0)) / 2
+      : 22000;
+    get().calibratePriceScale(clampedScale, centerPrice);
+    set({
+      autoFitY: false,
+      customScaleLocked: true,
+      scaleLockMode: "CUSTOM",
+    });
+  },
+
+  setVibrationRay: (ray) => {
+    set({
+      vibrationRay: ray,
+      customScaleLocked: true,
+      scaleLockMode: "VIBRATION_LOCKED",
+    });
+  },
+
+  clearVibrationRay: () => {
+    set({ vibrationRay: null });
+  },
+
   toggleAutoFitY: () => {
     const nextVal = !get().autoFitY;
-    set({ autoFitY: nextVal });
+    set({
+      autoFitY: nextVal,
+      customScaleLocked: nextVal ? false : get().customScaleLocked,
+      scaleLockMode: nextVal ? "AUTO_FIT" : (get().scaleLockMode === "AUTO_FIT" ? "CUSTOM" : get().scaleLockMode),
+    });
     if (nextVal) {
       get().fitViewportToActiveCandles();
     }
   },
 
   setAutoFitY: (enabled: boolean) => {
-    set({ autoFitY: enabled });
+    set({
+      autoFitY: enabled,
+      customScaleLocked: enabled ? false : get().customScaleLocked,
+      scaleLockMode: enabled ? "AUTO_FIT" : (get().scaleLockMode === "AUTO_FIT" ? "CUSTOM" : get().scaleLockMode),
+    });
     if (enabled) {
       get().fitViewportToActiveCandles();
     }
@@ -694,11 +752,15 @@ export const useGridState = create<GridState>((set, get) => ({
     }
     safeScale = Math.min(10000, Math.max(0.01, safeScale));
 
+    // Respect Custom Scale or Vibration Lock: Do not overwrite scale if user explicitly locked it
+    const isScaleLocked = get().customScaleLocked || get().scaleLockMode !== "AUTO_FIT";
+    const effectiveScale = isScaleLocked ? get().pricePerUnit : safeScale;
+
     // 5. Origin is locked permanently at (0, 0) with basePrice = 0
     // Vertical centering: midpoint of [localCeiling, localMinLow] aligns with canvas vertical center
     const centerPrice = (localCeiling + localMinLow) / 2;
     const centerY = (screenH + topOffset - bottomOffset) / 2;
-    const centerWorldY = (centerPrice / safeScale) * baseUnit;
+    const centerWorldY = (centerPrice / effectiveScale) * baseUnit;
     const rawTargetPanY = Math.round(centerY + centerWorldY * zoomVal);
     const minPanY = Math.round(screenH - bottomOffset);
     const targetPanY = Math.max(minPanY, rawTargetPanY);
@@ -708,7 +770,7 @@ export const useGridState = create<GridState>((set, get) => ({
     const safePanX = Math.min(leftOffset, currentPanX);
 
     set({
-      pricePerUnit: safeScale,
+      pricePerUnit: effectiveScale,
       basePrice: 0,
       priceCeiling: localCeiling,
       visibleHighestPrice: localMaxHigh,

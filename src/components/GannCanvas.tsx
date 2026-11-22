@@ -87,6 +87,9 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const priceToWorldY = useGridState((s) => s.priceToWorldY);
   const worldToPrice = useGridState((s) => s.worldToPrice);
   const activeSeedTool = useGridState((s) => s.activeSeedTool);
+  const lowestSeed = useGridState((s) => s.lowestSeed);
+  const highestSeed = useGridState((s) => s.highestSeed);
+  const vibrationRay = useGridState((s) => s.vibrationRay);
   const setLowestSeed = useGridState((s) => s.setLowestSeed);
   const setHighestSeed = useGridState((s) => s.setHighestSeed);
   const setActiveSeedTool = useGridState((s) => s.setActiveSeedTool);
@@ -310,11 +313,95 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
       ctx.restore();
     }
+
+    // 4. SutraScale Vibration 1x1 Ray Projected from Manual Seed Anchor
+    const activeSeed = lowestSeed || highestSeed;
+    if (activeSeed && (showGannRay45 || vibrationRay?.active)) {
+      const isBullSeed = !!lowestSeed;
+      const seedWorldX = activeSeed.gridCol * baseUnit;
+      const seedWorldY = priceToWorldY(activeSeed.price);
+      const seedScreen = worldToScreen(seedWorldX, seedWorldY);
+
+      ctx.save();
+      ctx.lineWidth = 2.0;
+      ctx.setLineDash([8, 4]);
+      ctx.strokeStyle = isBullSeed ? "#00796B" : "#D32F2F";
+
+      const extent = 5000;
+      const rayEndWorldX = seedWorldX + extent;
+      const rayEndWorldY = isBullSeed
+        ? seedWorldY + extent
+        : Math.max(0, seedWorldY - extent);
+      const rayEndScreen = worldToScreen(rayEndWorldX, rayEndWorldY);
+
+      ctx.beginPath();
+      ctx.moveTo(seedScreen.x, seedScreen.y);
+      ctx.lineTo(rayEndScreen.x, rayEndScreen.y);
+      ctx.stroke();
+
+      // Faint +/- 0.5% tolerance bands
+      const tolFactor = 0.005;
+      const tolWorld = (activeSeed.price * tolFactor / safePricePerUnit) * baseUnit;
+      ctx.lineWidth = 1.0;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = isBullSeed ? "rgba(0, 121, 107, 0.45)" : "rgba(211, 47, 47, 0.45)";
+
+      // Upper band
+      const upperStart = worldToScreen(seedWorldX, seedWorldY + tolWorld);
+      const upperEnd = worldToScreen(rayEndWorldX, rayEndWorldY + tolWorld);
+      ctx.beginPath();
+      ctx.moveTo(upperStart.x, upperStart.y);
+      ctx.lineTo(upperEnd.x, upperEnd.y);
+      ctx.stroke();
+
+      // Lower band
+      const lowerStart = worldToScreen(seedWorldX, Math.max(0, seedWorldY - tolWorld));
+      const lowerEnd = worldToScreen(rayEndWorldX, Math.max(0, rayEndWorldY - tolWorld));
+      ctx.beginPath();
+      ctx.moveTo(lowerStart.x, lowerStart.y);
+      ctx.lineTo(lowerEnd.x, lowerEnd.y);
+      ctx.stroke();
+
+      // Seed Anchor Node Indicator
+      ctx.beginPath();
+      ctx.arc(seedScreen.x, seedScreen.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = isBullSeed ? "#FFD700" : "#00E5FF";
+      ctx.fill();
+      ctx.lineWidth = 2.0;
+      ctx.strokeStyle = "#000000";
+      ctx.stroke();
+
+      // Ray Label
+      const labelScreen = worldToScreen(
+        seedWorldX + 16 * baseUnit,
+        isBullSeed ? seedWorldY + 16 * baseUnit : Math.max(0, seedWorldY - 16 * baseUnit)
+      );
+      if (
+        labelScreen.x >= 0 &&
+        labelScreen.x <= width &&
+        labelScreen.y >= 0 &&
+        labelScreen.y <= height
+      ) {
+        ctx.fillStyle = isBullSeed ? "#004D40" : "#B71C1C";
+        ctx.font = "bold 11px 'Courier New', monospace";
+        ctx.fillText(
+          `1x1 ${isBullSeed ? "BULL" : "BEAR"} SEED RAY (\u20B9${safePricePerUnit}/sq)`,
+          labelScreen.x + 8,
+          labelScreen.y - 8
+        );
+      }
+      ctx.restore();
+    }
   }, [
     pan,
     zoom,
     basePrice,
     showGannRay45,
+    lowestSeed,
+    highestSeed,
+    vibrationRay,
+    priceToWorldY,
+    safePricePerUnit,
     worldToScreen,
     getGridTile,
     baseUnit,

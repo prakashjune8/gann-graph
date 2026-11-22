@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { GannCanvas } from "./components/GannCanvas";
 import { DraftingToolbar } from "./components/DraftingToolbar";
 import { CoordinateOverlay } from "./components/CoordinateOverlay";
+import { BaseUnitCornerReadout } from "./components/BaseUnitCornerReadout";
 import { WaterFlowViewport } from "./components/WaterFlowViewport";
 import { VaultBackupModal } from "./components/VaultBackupModal";
 import { MissingVaultModal } from "./components/MissingVaultModal";
@@ -94,6 +95,9 @@ export const App: React.FC = () => {
 
       {/* Bottom Floating Live Coordinate HUD */}
       <CoordinateOverlay />
+
+      {/* Top-Right Live 1/8-Inch Square Base-Unit (x, y) Corner Readout */}
+      <BaseUnitCornerReadout />
 
       {/* Vault Backup, Export & Recovery Modal */}
       <VaultBackupModal

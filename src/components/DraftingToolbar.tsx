@@ -5,6 +5,8 @@ import { useActiveModuleTools } from "../ModuleRegistry";
 import { GridBridge } from "../core-bridge/GridBridge";
 import { DataDisplayCoordinator } from "../modules/data-display/DataDisplayCoordinator";
 import { DisplayTimeframe } from "../modules/data-display/DisplayTypes";
+import { SutraScaleModal } from "../modules/sutrascale-vibration/SutraScaleModal";
+import { registerSutraScaleModalTrigger } from "../modules/sutrascale-vibration/SutraScaleVibrationModule";
 
 interface DraftingToolbarProps {
   showGannRay: boolean;
@@ -52,12 +54,18 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const autoFitY = useGridState((s) => s.autoFitY);
   const toggleAutoFitY = useGridState((s) => s.toggleAutoFitY);
   const vaultSyncBadge = useGridState((s) => s.vaultSyncBadge);
+  const pricePerUnit = useGridState((s) => s.pricePerUnit);
+  const customScaleLocked = useGridState((s) => s.customScaleLocked);
+  const scaleLockMode = useGridState((s) => s.scaleLockMode);
+  const setCustomScale = useGridState((s) => s.setCustomScale);
 
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [lowestDateInput, setLowestDateInput] = useState("");
   const [lowestPriceInput, setLowestPriceInput] = useState("");
   const [highestDateInput, setHighestDateInput] = useState("");
   const [highestPriceInput, setHighestPriceInput] = useState("");
+  const [customScaleInput, setCustomScaleInput] = useState("");
+  const [isSutraScaleModalOpen, setIsSutraScaleModalOpen] = useState(false);
 
   // Dynamic Modular Plugin Tools (Feature-Sliced Architecture)
   const moduleTools = useActiveModuleTools();
@@ -66,6 +74,10 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
 
   useEffect(() => {
     return DataDisplayCoordinator.subscribe((s) => setCoordinatorState({ ...s }));
+  }, []);
+
+  useEffect(() => {
+    return registerSutraScaleModalTrigger(() => setIsSutraScaleModalOpen(true));
   }, []);
 
   const [isVaultLoading, setIsVaultLoading] = useState(false);
@@ -845,6 +857,76 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
         >
           {autoFitY ? "✓ Auto-Fit Y" : "Auto-Fit Y"}
         </button>
+
+        {/* Customized Scale Input (Locks scale against unwanted auto-fit overwrites) */}
+        <div style={{ display: "flex", alignItems: "center", gap: "3px", marginLeft: "2px" }}>
+          <span style={{ fontSize: "10px", color: "rgba(74, 120, 102, 0.9)", fontWeight: "bold" }}>₹/sq:</span>
+          <input
+            type="number"
+            step="any"
+            placeholder={pricePerUnit ? pricePerUnit.toFixed(2) : "25.00"}
+            value={customScaleInput}
+            onChange={(e) => setCustomScaleInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const val = parseFloat(customScaleInput);
+                if (Number.isFinite(val) && val > 0) {
+                  setCustomScale(val);
+                  setCustomScaleInput("");
+                }
+              }
+            }}
+            style={{
+              width: "62px",
+              padding: "3px 5px",
+              fontSize: "11px",
+              fontFamily: "'Courier New', Courier, monospace",
+              border: "1px solid rgba(74, 120, 102, 0.40)",
+              borderRadius: "3px",
+              outline: "none",
+              backgroundColor: "#FFFFFF",
+              color: "#1B5E20",
+              fontWeight: "bold",
+            }}
+            title="Type any custom scale (e.g. 33.33, 37.5, 20) and hit Enter or click Apply to lock"
+          />
+          <button
+            onClick={() => {
+              const val = parseFloat(customScaleInput);
+              if (Number.isFinite(val) && val > 0) {
+                setCustomScale(val);
+                setCustomScaleInput("");
+              }
+            }}
+            style={{
+              ...buttonStyle,
+              padding: "3px 7px",
+              backgroundColor: customScaleLocked && scaleLockMode === "CUSTOM" ? "#FFF8E1" : "transparent",
+              borderColor: customScaleLocked && scaleLockMode === "CUSTOM" ? "#FFA000" : "rgba(74, 120, 102, 0.40)",
+              color: customScaleLocked && scaleLockMode === "CUSTOM" ? "#B78103" : "#333",
+              fontWeight: "bold",
+              fontSize: "10px",
+            }}
+            title="Apply custom scale value and lock it against unwanted auto-scale overwrites"
+          >
+            Apply
+          </button>
+        </div>
+
+        {/* Dedicated SutraScale Vibration Verifier Button */}
+        <button
+          onClick={() => setIsSutraScaleModalOpen(true)}
+          style={{
+            ...buttonStyle,
+            backgroundColor: scaleLockMode === "VIBRATION_LOCKED" ? "#E0F2F1" : "#E8F5E9",
+            borderColor: scaleLockMode === "VIBRATION_LOCKED" ? "#00796B" : "#2E7D32",
+            color: scaleLockMode === "VIBRATION_LOCKED" ? "#004D40" : "#1B5E20",
+            fontWeight: "bold",
+          }}
+          title="Open SutraScale Vibration Verifier (0.5% Wick Collision & Geometric R² Harmonic Sweep)"
+        >
+          ⚡ SutraScale
+        </button>
       </div>
 
       <div style={dividerStyle} />
@@ -928,6 +1010,13 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
           🧹 Reset Scale
         </button>
       </div>
+
+      {/* SutraScale Algorithmic Vibration Verification Modal */}
+      <SutraScaleModal
+        isOpen={isSutraScaleModalOpen}
+        onClose={() => setIsSutraScaleModalOpen(false)}
+        onOpenSeedModal={() => setIsSeedModalOpen(true)}
+      />
     </div>
   );
 };
