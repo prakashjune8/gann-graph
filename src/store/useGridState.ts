@@ -26,13 +26,18 @@ export function clampPanToQuadrant1(
 ): Point2D {
   const leftOffset = showLeftAxis ? 84 : 0;
   const bottomOffset = showBottomAxis ? 32 : 0;
+  const topOffset = 30;
   // In screen space:
   // screenX = pan.x + worldX * zoom. For worldX >= 0, screenX >= pan.x.
   // To prevent worldX < 0 from appearing right of left ruler, pan.x cannot exceed leftOffset:
   const clampedX = Math.min(leftOffset, Math.round(pan.x));
-  // screenY = pan.y - worldY * zoom. For worldY >= 0, screenY <= pan.y.
-  // To prevent worldY < 0 from appearing above bottom ruler, pan.y cannot drop below (screenHeight - bottomOffset):
-  const minPanY = Math.round(screenHeight - bottomOffset);
+  // 20% vertical viewport cushion below the 0 baseline:
+  // Allows the 0 baseline (worldY = 0, screenY = pan.y) to sit up to 20% of the active
+  // canvas height above the bottom ruler, giving breathing space so low candles & downward rays
+  // are never jammed at the bottom edge, while keeping origin fixed at (0, 0) and prices >= 0:
+  const availableH = Math.max(100, screenHeight - topOffset - bottomOffset);
+  const bottomCushion = Math.round(availableH * 0.20);
+  const minPanY = Math.round(screenHeight - bottomOffset - bottomCushion);
   const clampedY = Math.max(minPanY, Math.round(pan.y));
   return { x: clampedX, y: clampedY };
 }
@@ -465,11 +470,14 @@ export const useGridState = create<GridState>((set, get) => ({
   },
 
   resetView: (_canvasWidth = 1440, canvasHeight = 900) => {
-    const { showLeftAxis, showBottomAxis } = get();
+    const { showLeftAxis, showBottomAxis, showTopAxis } = get();
     const leftOffset = showLeftAxis ? 84 : 0;
     const bottomOffset = showBottomAxis ? 32 : 0;
+    const topOffset = showTopAxis ? 30 : 0;
+    const availableH = Math.max(100, canvasHeight - topOffset - bottomOffset);
+    const bottomCushion = Math.round(availableH * 0.20);
     set({
-      pan: { x: leftOffset, y: Math.round(canvasHeight - bottomOffset) },
+      pan: { x: leftOffset, y: Math.round(canvasHeight - bottomOffset - bottomCushion) },
       zoom: 1.0,
     });
   },
@@ -762,7 +770,9 @@ export const useGridState = create<GridState>((set, get) => ({
     const centerY = (screenH + topOffset - bottomOffset) / 2;
     const centerWorldY = (centerPrice / effectiveScale) * baseUnit;
     const rawTargetPanY = Math.round(centerY + centerWorldY * zoomVal);
-    const minPanY = Math.round(screenH - bottomOffset);
+    // 20% vertical viewport cushion below 0 baseline:
+    const bottomCushion = Math.round(availableH * 0.20);
+    const minPanY = Math.round(screenH - bottomOffset - bottomCushion);
     const targetPanY = Math.max(minPanY, rawTargetPanY);
 
     const { showLeftAxis } = get();

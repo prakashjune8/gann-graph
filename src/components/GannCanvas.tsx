@@ -890,15 +890,15 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     // 1. LEFT PRICE TRACK (Y-AXIS - Strictly positive Y >= 0, no negative Y axis)
     if (showLeftAxis) {
       const axisY = Math.round(pan.y);
-      const rulerBottom = axisY >= 0 ? Math.min(height, axisY) : 0;
-      if (rulerBottom > 0) {
+      const rulerBottom = axisY >= 0 ? Math.min(mainBottom, axisY) : 0;
+      if (mainBottom > 0) {
         ctx.fillStyle = rulerBg;
-        ctx.fillRect(0, 0, leftRulerWidth, rulerBottom);
+        ctx.fillRect(0, 0, leftRulerWidth, mainBottom);
         ctx.strokeStyle = rulerBorder;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.moveTo(Math.round(leftRulerWidth) + 0.5, 0);
-        ctx.lineTo(Math.round(leftRulerWidth) + 0.5, rulerBottom);
+        ctx.lineTo(Math.round(leftRulerWidth) + 0.5, mainBottom);
         ctx.stroke();
 
         ctx.textBaseline = "middle";
@@ -940,15 +940,15 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
     // 2. RIGHT PRICE TRACK (Y-AXIS - Strictly positive Y >= 0, no negative Y axis)
     if (showRightAxis) {
       const axisY = Math.round(pan.y);
-      const rulerBottom = axisY >= 0 ? Math.min(height, axisY) : 0;
-      if (rulerBottom > 0) {
+      const rulerBottom = axisY >= 0 ? Math.min(mainBottom, axisY) : 0;
+      if (mainBottom > 0) {
         ctx.fillStyle = rulerBg;
-        ctx.fillRect(mainRight, 0, rightRulerWidth, rulerBottom);
+        ctx.fillRect(mainRight, 0, rightRulerWidth, mainBottom);
         ctx.strokeStyle = rulerBorder;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.moveTo(Math.round(mainRight) + 0.5, 0);
-        ctx.lineTo(Math.round(mainRight) + 0.5, rulerBottom);
+        ctx.lineTo(Math.round(mainRight) + 0.5, mainBottom);
         ctx.stroke();
 
         ctx.textBaseline = "middle";
