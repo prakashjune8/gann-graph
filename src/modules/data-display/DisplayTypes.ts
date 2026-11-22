@@ -20,6 +20,11 @@ export interface RawMarketBar {
   oi?: number;
   symbol?: string;
   exchange?: string;
+  exactLowestDate?: string;
+  exactLowestPrice?: number;
+  exactHighestDate?: string;
+  exactHighestPrice?: number;
+  underlyingBarsCount?: number;
 }
 
 export interface DisplayDatasetRequest {

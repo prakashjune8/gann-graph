@@ -20,6 +20,12 @@ export interface CandleData {
   pattern?: string; // Recognized candlestick pattern (Hammer, Doji, Engulfing, etc.)
   patternType?: "BULLISH" | "BEARISH" | "NEUTRAL";
   patternDescription?: string;
+  // Exact 1D drilldown extremes for higher timeframe candles (1M / 1W)
+  exactLowestDate?: string;
+  exactLowestPrice?: number;
+  exactHighestDate?: string;
+  exactHighestPrice?: number;
+  underlyingBarsCount?: number;
 }
 
 export interface SwingPoint {
@@ -37,6 +43,7 @@ export interface ManualSeedPoint {
   gridCol: number;
   price: number;
   barIndex?: number;
+  exactTimeframe?: string;
 }
 
 export type ChartDisplayMode =

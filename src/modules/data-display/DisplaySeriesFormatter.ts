@@ -157,6 +157,11 @@ export function formatBarsForDisplay(
       close: bar.close,
       volume: bar.volume || 0,
       gridCol,
+      exactLowestDate: bar.exactLowestDate || timeStr,
+      exactLowestPrice: bar.exactLowestPrice ?? bar.low,
+      exactHighestDate: bar.exactHighestDate || timeStr,
+      exactHighestPrice: bar.exactHighestPrice ?? bar.high,
+      underlyingBarsCount: bar.underlyingBarsCount ?? 1,
     };
   });
 

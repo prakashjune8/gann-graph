@@ -81,13 +81,28 @@ export function aggregateMarketBars(
     let high = -Infinity;
     let low = Infinity;
     let volumeSum = 0;
+    let lowestBar = first;
+    let highestBar = first;
 
     for (let j = 0; j < groupBars.length; j++) {
       const b = groupBars[j];
-      if (b.high > high) high = b.high;
-      if (b.low < low) low = b.low;
+      if (b.high > high) {
+        high = b.high;
+        highestBar = b;
+      }
+      if (b.low < low) {
+        low = b.low;
+        lowestBar = b;
+      }
       volumeSum += b.volume || 0;
     }
+
+    const lowestDateStr = typeof lowestBar.timestamp === "string"
+      ? lowestBar.timestamp
+      : new Date(lowestBar.timestamp).toISOString().slice(0, 10);
+    const highestDateStr = typeof highestBar.timestamp === "string"
+      ? highestBar.timestamp
+      : new Date(highestBar.timestamp).toISOString().slice(0, 10);
 
     aggregatedBars.push({
       timestamp: last.timestamp,
@@ -98,6 +113,11 @@ export function aggregateMarketBars(
       volume: volumeSum,
       symbol: first.symbol,
       exchange: first.exchange,
+      exactLowestDate: lowestDateStr,
+      exactLowestPrice: lowestBar.low,
+      exactHighestDate: highestDateStr,
+      exactHighestPrice: highestBar.high,
+      underlyingBarsCount: groupBars.length,
     });
   }
 

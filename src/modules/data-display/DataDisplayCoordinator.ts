@@ -348,6 +348,36 @@ class DataDisplayCoordinatorEngine {
     const gridStore = useGridState.getState();
     const swings = extractDisplaySwings(displayCandles, gridStore.basePrice, gridStore.pricePerUnit, newTimeframe);
 
+    // Resynchronize manual seed grid columns to newly aggregated candles if dates match
+    if (gridStore.lowestSeed && gridStore.lowestSeed.date) {
+      const match = displayCandles.find((c) =>
+        c.timestamp === gridStore.lowestSeed!.date ||
+        (c.exactLowestDate && c.exactLowestDate === gridStore.lowestSeed!.date) ||
+        gridStore.lowestSeed!.date.startsWith(c.timestamp) ||
+        c.timestamp.startsWith(gridStore.lowestSeed!.date.slice(0, 7))
+      );
+      if (match && match.gridCol !== gridStore.lowestSeed.gridCol) {
+        gridStore.setLowestSeed({
+          ...gridStore.lowestSeed,
+          gridCol: match.gridCol,
+        });
+      }
+    }
+    if (gridStore.highestSeed && gridStore.highestSeed.date) {
+      const match = displayCandles.find((c) =>
+        c.timestamp === gridStore.highestSeed!.date ||
+        (c.exactHighestDate && c.exactHighestDate === gridStore.highestSeed!.date) ||
+        gridStore.highestSeed!.date.startsWith(c.timestamp) ||
+        c.timestamp.startsWith(gridStore.highestSeed!.date.slice(0, 7))
+      );
+      if (match && match.gridCol !== gridStore.highestSeed.gridCol) {
+        gridStore.setHighestSeed({
+          ...gridStore.highestSeed,
+          gridCol: match.gridCol,
+        });
+      }
+    }
+
     return this.dispatchToChart(
       this.state.activeSymbol,
       newTimeframe,
@@ -356,6 +386,86 @@ class DataDisplayCoordinatorEngine {
       this.state.metadata?.source || "vault",
       true
     );
+  }
+
+  /**
+   * Drills down from a high-level swing / candle (1M or 1W) into the exact 1D daily candle
+   * that holds the true extreme (lowest Low for a low seed, highest High for a high seed).
+   * Switches timeframe to 1D, centers viewport on that exact 1D candle, and locks the manual seed.
+   */
+  public drillDownTo1D(
+    targetDate: string,
+    extremePrice?: number,
+    seedType: "PICK_LOWEST" | "PICK_HIGHEST" | "NONE" = "NONE"
+  ): DisplayDispatchResult {
+    // 1. Switch timeframe to 1D
+    const res = this.setTimeframe("1D");
+
+    const gridStore = useGridState.getState();
+    const candles1D = gridStore.candles;
+
+    if (candles1D.length === 0) return res;
+
+    // 2. Find matching 1D candle
+    let targetCandle = candles1D[0];
+    let minDiff = Infinity;
+    const cleanTarget = targetDate.trim();
+
+    for (const c of candles1D) {
+      if (c.timestamp === cleanTarget) {
+        targetCandle = c;
+        break;
+      }
+      if (c.timestamp.startsWith(cleanTarget) || cleanTarget.startsWith(c.timestamp)) {
+        targetCandle = c;
+        break;
+      }
+      const diff = Math.abs(new Date(c.timestamp).getTime() - new Date(cleanTarget).getTime());
+      if (diff < minDiff) {
+        minDiff = diff;
+        targetCandle = c;
+      }
+    }
+
+    // 3. Set manual seed if requested
+    if (seedType === "PICK_LOWEST") {
+      const finalPrice = extremePrice !== undefined && extremePrice > 0 ? extremePrice : targetCandle.low;
+      gridStore.setLowestSeed({
+        date: targetCandle.timestamp,
+        gridCol: targetCandle.gridCol,
+        price: finalPrice,
+        exactTimeframe: "1D",
+      });
+      gridStore.setActiveSeedTool("NONE");
+      gridStore.setVaultSyncBadge({
+        visible: true,
+        text: `🌱 1D Lowest Seed Locked: ${targetCandle.timestamp} @ ₹${finalPrice.toFixed(2)} (Col ${targetCandle.gridCol})`,
+        timestamp: Date.now(),
+      });
+    } else if (seedType === "PICK_HIGHEST") {
+      const finalPrice = extremePrice !== undefined && extremePrice > 0 ? extremePrice : targetCandle.high;
+      gridStore.setHighestSeed({
+        date: targetCandle.timestamp,
+        gridCol: targetCandle.gridCol,
+        price: finalPrice,
+        exactTimeframe: "1D",
+      });
+      gridStore.setActiveSeedTool("NONE");
+      gridStore.setVaultSyncBadge({
+        visible: true,
+        text: `🍁 1D Highest Seed Locked: ${targetCandle.timestamp} @ ₹${finalPrice.toFixed(2)} (Col ${targetCandle.gridCol})`,
+        timestamp: Date.now(),
+      });
+    }
+
+    // 4. Center viewport horizontally on the drilled-down 1D candle
+    const screenW = typeof window !== "undefined" ? window.innerWidth : 1440;
+    const targetWorldX = targetCandle.gridCol * gridStore.baseUnit;
+    const leftMargin = gridStore.showLeftAxis ? 84 : 0;
+    const targetPanX = Math.min(leftMargin, Math.round(screenW / 2 - targetWorldX * gridStore.zoom));
+    gridStore.setPanX(targetPanX);
+
+    return res;
   }
 
   /**

@@ -50,6 +50,7 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
   const setHighestSeed = useGridState((s) => s.setHighestSeed);
   const setActiveSeedTool = useGridState((s) => s.setActiveSeedTool);
   const clearManualSeeds = useGridState((s) => s.clearManualSeeds);
+  const candles = useGridState((s) => s.candles);
   const hasCandles = useGridState((s) => s.candles.length > 0);
   const autoFitY = useGridState((s) => s.autoFitY);
   const toggleAutoFitY = useGridState((s) => s.toggleAutoFitY);
@@ -594,9 +595,20 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
                   onClick={() => {
                     const price = parseFloat(lowestPriceInput);
                     if (Number.isFinite(price) && price > 0) {
-                      const colMatch = lowestDateInput.match(/col\s*(\d+)/i);
-                      const gridCol = colMatch ? parseInt(colMatch[1], 10) : 0;
-                      setLowestSeed({ date: lowestDateInput, gridCol, price });
+                      const trimmed = lowestDateInput.trim();
+                      const colMatch = trimmed.match(/col\s*(\d+)/i);
+                      let gridCol = 0;
+                      if (colMatch) {
+                        gridCol = parseInt(colMatch[1], 10);
+                      } else if (trimmed) {
+                        const match = candles.find((c) =>
+                          c.timestamp === trimmed ||
+                          c.timestamp.startsWith(trimmed) ||
+                          trimmed.startsWith(c.timestamp)
+                        );
+                        if (match) gridCol = match.gridCol;
+                      }
+                      setLowestSeed({ date: trimmed, gridCol, price });
                       setLowestPriceInput("");
                       setLowestDateInput("");
                     }
@@ -716,9 +728,20 @@ export const DraftingToolbar: React.FC<DraftingToolbarProps> = ({
                   onClick={() => {
                     const price = parseFloat(highestPriceInput);
                     if (Number.isFinite(price) && price > 0) {
-                      const colMatch = highestDateInput.match(/col\s*(\d+)/i);
-                      const gridCol = colMatch ? parseInt(colMatch[1], 10) : 0;
-                      setHighestSeed({ date: highestDateInput, gridCol, price });
+                      const trimmed = highestDateInput.trim();
+                      const colMatch = trimmed.match(/col\s*(\d+)/i);
+                      let gridCol = 0;
+                      if (colMatch) {
+                        gridCol = parseInt(colMatch[1], 10);
+                      } else if (trimmed) {
+                        const match = candles.find((c) =>
+                          c.timestamp === trimmed ||
+                          c.timestamp.startsWith(trimmed) ||
+                          trimmed.startsWith(c.timestamp)
+                        );
+                        if (match) gridCol = match.gridCol;
+                      }
+                      setHighestSeed({ date: trimmed, gridCol, price });
                       setHighestPriceInput("");
                       setHighestDateInput("");
                     }

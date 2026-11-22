@@ -4,6 +4,7 @@ import { GridTheme, CandleData } from "../types/gann";
 import { verifyKeEAspectRatio, auditCanvasBackingStore } from "../utils/ratioSentinel";
 import { normalizeWheelEvent } from "../utils/wheelNormalizer";
 import { GridBridge } from "../core-bridge/GridBridge";
+import { DataDisplayCoordinator } from "../modules/data-display/DataDisplayCoordinator";
 
 // Classic drafting room color palette for Keuffel & Esser 8x8 engineering vellum
 const DRAFTING_THEME: GridTheme = {
@@ -90,9 +91,13 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
   const lowestSeed = useGridState((s) => s.lowestSeed);
   const highestSeed = useGridState((s) => s.highestSeed);
   const vibrationRay = useGridState((s) => s.vibrationRay);
+  const timePerUnit = useGridState((s) => s.timePerUnit);
   const setLowestSeed = useGridState((s) => s.setLowestSeed);
   const setHighestSeed = useGridState((s) => s.setHighestSeed);
   const setActiveSeedTool = useGridState((s) => s.setActiveSeedTool);
+  const setVaultSyncBadge = useGridState((s) => s.setVaultSyncBadge);
+
+  const [hoveredSeedCandle, setHoveredSeedCandle] = useState<CandleData | null>(null);
 
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -1637,17 +1642,45 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       }
 
       const isNearCandle = nearestCandle && minColDiff <= 4;
+      const isHigherTf = timePerUnit === "1M" || timePerUnit === "1W";
+
+      if (isNearCandle && isHigherTf) {
+        // Exact 1M -> 1W -> 1D drilldown precision!
+        if (activeSeedTool === "PICK_LOWEST") {
+          const targetDate = nearestCandle.exactLowestDate || nearestCandle.timestamp;
+          const targetPrice = nearestCandle.exactLowestPrice ?? nearestCandle.low;
+          DataDisplayCoordinator.drillDownTo1D(targetDate, targetPrice, "PICK_LOWEST");
+        } else if (activeSeedTool === "PICK_HIGHEST") {
+          const targetDate = nearestCandle.exactHighestDate || nearestCandle.timestamp;
+          const targetPrice = nearestCandle.exactHighestPrice ?? nearestCandle.high;
+          DataDisplayCoordinator.drillDownTo1D(targetDate, targetPrice, "PICK_HIGHEST");
+        }
+        setHoveredSeedCandle(null);
+        return;
+      }
+
       const date = isNearCandle ? nearestCandle.timestamp : "";
       const gridCol = Math.max(0, isNearCandle ? nearestCandle.gridCol : clickedCol);
 
       if (activeSeedTool === "PICK_LOWEST") {
         const price = isNearCandle ? nearestCandle.low : Math.round(clickedPrice * 100) / 100;
-        setLowestSeed({ date, gridCol, price: Math.max(0, price) });
+        setLowestSeed({ date, gridCol, price: Math.max(0, price), exactTimeframe: timePerUnit || "1D" });
+        setVaultSyncBadge({
+          visible: true,
+          text: `🌱 Lowest Seed Locked: ${date || `Col ${gridCol}`} @ ₹${price.toFixed(2)}`,
+          timestamp: Date.now(),
+        });
       } else if (activeSeedTool === "PICK_HIGHEST") {
         const price = isNearCandle ? nearestCandle.high : Math.round(clickedPrice * 100) / 100;
-        setHighestSeed({ date, gridCol, price: Math.max(0, price) });
+        setHighestSeed({ date, gridCol, price: Math.max(0, price), exactTimeframe: timePerUnit || "1D" });
+        setVaultSyncBadge({
+          visible: true,
+          text: `🍁 Highest Seed Locked: ${date || `Col ${gridCol}`} @ ₹${price.toFixed(2)}`,
+          timestamp: Date.now(),
+        });
       }
       setActiveSeedTool("NONE");
+      setHoveredSeedCandle(null);
       return;
     }
 
@@ -1667,6 +1700,26 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
 
     updateCursor(screenX, screenY);
 
+    // Live inspect nearest candle during manual seed selection
+    if (activeSeedTool !== "NONE") {
+      const worldX = (screenX - pan.x) / zoom;
+      const col = Math.round(worldX / baseUnit);
+      let closest: CandleData | null = null;
+      let minDiff = Infinity;
+      for (const c of candles) {
+        const diff = Math.abs(c.gridCol - col);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = c;
+        }
+      }
+      if (closest && minDiff <= 6) {
+        setHoveredSeedCandle(closest);
+      } else {
+        setHoveredSeedCandle(null);
+      }
+    }
+
     // Schedule Layer 4 crosshair dirty-rect redraw directly via RAF without React re-render
     if (animFrameCrosshairRef.current) cancelAnimationFrame(animFrameCrosshairRef.current);
     animFrameCrosshairRef.current = requestAnimationFrame(renderCrosshair);
@@ -1681,6 +1734,32 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         }
       } else {
         panBy(deltaX, deltaY);
+      }
+    }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (timePerUnit === "1M" || timePerUnit === "1W") {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const screenX = e.clientX - rect.left;
+      const worldX = (screenX - pan.x) / zoom;
+      const clickedCol = Math.round(worldX / baseUnit);
+
+      let nearestCandle = candles[0];
+      let minColDiff = Infinity;
+      for (const c of candles) {
+        const diff = Math.abs(c.gridCol - clickedCol);
+        if (diff < minColDiff) {
+          minColDiff = diff;
+          nearestCandle = c;
+        }
+      }
+
+      if (nearestCandle && minColDiff <= 4) {
+        const targetDate = nearestCandle.exactLowestDate || nearestCandle.timestamp;
+        DataDisplayCoordinator.drillDownTo1D(targetDate);
       }
     }
   };
@@ -1710,6 +1789,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
       onMouseUp={handleMouseUp}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onDoubleClick={handleDoubleClick}
       style={{
         position: "relative",
         width: "100%",
@@ -1782,7 +1862,7 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
         }}
       />
 
-      {/* Interactive Manual Seed HUD Banner */}
+      {/* Interactive Manual Seed HUD Banner with Live Coordinate Readout & 1M->1W->1D Drilldown */}
       {activeSeedTool !== "NONE" && (
         <div
           style={{
@@ -1794,43 +1874,88 @@ export const GannCanvas: React.FC<GannCanvasProps> = ({
             border:
               activeSeedTool === "PICK_LOWEST" ? "2px solid #FF8F00" : "2px solid #00ACC1",
             borderRadius: "6px",
-            padding: "8px 18px",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.22)",
+            padding: "10px 18px",
+            boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
-            gap: "14px",
+            gap: "6px",
             zIndex: 100,
             fontFamily: "'Courier New', Courier, monospace",
             fontWeight: "bold",
             fontSize: "12px",
             color: "#1E2A24",
             pointerEvents: "auto",
+            maxWidth: "90vw",
           }}
         >
-          <span>
-            {activeSeedTool === "PICK_LOWEST"
-              ? "🎯 CLICK CHART OR CANDLE TO SET LOWEST SEED (TIME + PRICE)"
-              : "🎯 CLICK CHART OR CANDLE TO SET HIGHEST SEED (TIME + PRICE)"}
-          </span>
-          <button
-            onClick={(ev) => {
-              ev.stopPropagation();
-              setActiveSeedTool("NONE");
-            }}
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", width: "100%", justifyContent: "space-between" }}>
+            <span style={{ color: activeSeedTool === "PICK_LOWEST" ? "#B78103" : "#00838F" }}>
+              {activeSeedTool === "PICK_LOWEST"
+                ? "🎯 SELECTING LOWEST SEED (BULL ANCHOR)"
+                : "🎯 SELECTING HIGHEST SEED (BEAR ANCHOR)"}
+              <span style={{ fontSize: "10px", marginLeft: "8px", color: "#555", fontWeight: "normal" }}>
+                [Active Timeframe: {timePerUnit || "1D"}]
+              </span>
+            </span>
+            <button
+              onClick={(ev) => {
+                ev.stopPropagation();
+                setActiveSeedTool("NONE");
+                setHoveredSeedCandle(null);
+              }}
+              style={{
+                backgroundColor: "#C62828",
+                color: "#FFF",
+                border: "none",
+                borderRadius: "4px",
+                padding: "3px 8px",
+                cursor: "pointer",
+                fontSize: "11px",
+                fontFamily: "'Courier New', Courier, monospace",
+                fontWeight: "bold",
+              }}
+            >
+              ✕ Cancel
+            </button>
+          </div>
+
+          {/* Live Hover Readout of Candle Under Cursor */}
+          <div
             style={{
-              backgroundColor: "#C62828",
-              color: "#FFF",
-              border: "none",
-              borderRadius: "4px",
-              padding: "4px 10px",
-              cursor: "pointer",
               fontSize: "11px",
-              fontFamily: "'Courier New', Courier, monospace",
-              fontWeight: "bold",
+              backgroundColor: "rgba(255, 255, 255, 0.90)",
+              padding: "5px 10px",
+              borderRadius: "4px",
+              border: "1px dashed rgba(74, 120, 102, 0.4)",
+              width: "100%",
+              boxSizing: "border-box",
+              color: "#333",
             }}
           >
-            ✕ Cancel
-          </button>
+            {hoveredSeedCandle ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                <div>
+                  Candle: <strong>{hoveredSeedCandle.timestamp}</strong> | Col: <strong>{hoveredSeedCandle.gridCol}</strong> | High: <strong>₹{hoveredSeedCandle.high.toLocaleString("en-IN")}</strong> | Low: <strong>₹{hoveredSeedCandle.low.toLocaleString("en-IN")}</strong>
+                </div>
+                {(timePerUnit === "1M" || timePerUnit === "1W") ? (
+                  <div style={{ color: activeSeedTool === "PICK_LOWEST" ? "#B78103" : "#00838F", fontSize: "11px", fontWeight: "bold" }}>
+                    {activeSeedTool === "PICK_LOWEST"
+                      ? `★ Exact 1D Turning Low: ${hoveredSeedCandle.exactLowestDate || hoveredSeedCandle.timestamp} @ ₹${(hoveredSeedCandle.exactLowestPrice ?? hoveredSeedCandle.low).toFixed(2)} (Click to drill down to 1D)`
+                      : `★ Exact 1D Turning High: ${hoveredSeedCandle.exactHighestDate || hoveredSeedCandle.timestamp} @ ₹${(hoveredSeedCandle.exactHighestPrice ?? hoveredSeedCandle.high).toFixed(2)} (Click to drill down to 1D)`}
+                  </div>
+                ) : (
+                  <div style={{ color: "#2E7D32", fontSize: "10px" }}>
+                    👉 Click candle to lock seed: {activeSeedTool === "PICK_LOWEST" ? `Low ₹${hoveredSeedCandle.low.toFixed(2)}` : `High ₹${hoveredSeedCandle.high.toFixed(2)}`} @ {hoveredSeedCandle.timestamp}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <span style={{ color: "#777", fontStyle: "italic" }}>
+                Hover cursor over any candle to inspect coordinates & click to set seed
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -34,11 +34,12 @@ export const SutraScaleModal: React.FC<SutraScaleModalProps> = ({
   const setVaultSyncBadge = useGridState((s) => s.setVaultSyncBadge);
 
   const [activeTab, setActiveTab] = useState<"SWEEP" | "OCTAVES">("SWEEP");
+  const [selectedAnchor, setSelectedAnchor] = useState<"AUTO" | "LOWEST" | "HIGHEST">("AUTO");
 
   // Run verification whenever candles or seeds change
   const report = useMemo(() => {
-    return runSutraScaleVerification(candles, lowestSeed, highestSeed, 60);
-  }, [candles, lowestSeed, highestSeed]);
+    return runSutraScaleVerification(candles, lowestSeed, highestSeed, 60, selectedAnchor);
+  }, [candles, lowestSeed, highestSeed, selectedAnchor]);
 
   if (!isOpen) return null;
 
@@ -179,26 +180,63 @@ export const SutraScaleModal: React.FC<SutraScaleModalProps> = ({
               </div>
             </div>
 
-            {!report.hasAnchor && onOpenSeedModal && (
-              <button
-                onClick={() => {
-                  onClose();
-                  onOpenSeedModal();
-                }}
-                style={{
-                  padding: "5px 12px",
-                  backgroundColor: "#2E7D32",
-                  color: "#FFF",
-                  border: "none",
-                  borderRadius: "4px",
-                  fontSize: "10px",
-                  fontWeight: "bold",
-                  cursor: "pointer",
-                }}
-              >
-                Set Manual Seed
-              </button>
-            )}
+            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              {lowestSeed && highestSeed && (
+                <div style={{ display: "flex", gap: "4px" }}>
+                  <button
+                    onClick={() => setSelectedAnchor("LOWEST")}
+                    style={{
+                      padding: "4px 8px",
+                      backgroundColor: report.anchorType === "BULL_LOW" ? "#2E7D32" : "#FFF",
+                      color: report.anchorType === "BULL_LOW" ? "#FFF" : "#2E7D32",
+                      border: "1px solid #2E7D32",
+                      borderRadius: "4px",
+                      fontSize: "9px",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                    }}
+                  >
+                    🌱 Lowest (Bull)
+                  </button>
+                  <button
+                    onClick={() => setSelectedAnchor("HIGHEST")}
+                    style={{
+                      padding: "4px 8px",
+                      backgroundColor: report.anchorType === "BEAR_HIGH" ? "#C62828" : "#FFF",
+                      color: report.anchorType === "BEAR_HIGH" ? "#FFF" : "#C62828",
+                      border: "1px solid #C62828",
+                      borderRadius: "4px",
+                      fontSize: "9px",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                    }}
+                  >
+                    🍁 Highest (Bear)
+                  </button>
+                </div>
+              )}
+
+              {!report.hasAnchor && onOpenSeedModal && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    onOpenSeedModal();
+                  }}
+                  style={{
+                    padding: "5px 12px",
+                    backgroundColor: "#2E7D32",
+                    color: "#FFF",
+                    border: "none",
+                    borderRadius: "4px",
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                  }}
+                >
+                  Set Manual Seed
+                </button>
+              )}
+            </div>
           </div>
 
           {report.hasAnchor && (

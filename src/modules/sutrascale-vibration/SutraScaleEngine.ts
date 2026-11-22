@@ -88,7 +88,8 @@ export function runSutraScaleVerification(
   candles: CandleData[],
   lowestSeed: ManualSeedPoint | null,
   highestSeed: ManualSeedPoint | null,
-  maxForwardBars: number = 60
+  maxForwardBars: number = 60,
+  preferredAnchor: "AUTO" | "LOWEST" | "HIGHEST" = "AUTO"
 ): SutraScaleAnalysisReport {
   // 1. Strict Manual Seed Check (Zero Auto-Seed Override)
   if (!lowestSeed && !highestSeed) {
@@ -106,12 +107,24 @@ export function runSutraScaleVerification(
     };
   }
 
-  // Determine active seed: Prefer Lowest Seed (Bull), otherwise Highest Seed (Bear)
-  const isBull = !!lowestSeed;
-  const activeSeed = isBull ? lowestSeed! : highestSeed!;
+  // Determine active seed according to user preference or availability
+  let isBull = true;
+  let activeSeed = lowestSeed;
+
+  if (preferredAnchor === "HIGHEST" && highestSeed) {
+    isBull = false;
+    activeSeed = highestSeed;
+  } else if (preferredAnchor === "LOWEST" && lowestSeed) {
+    isBull = true;
+    activeSeed = lowestSeed;
+  } else {
+    isBull = !!lowestSeed;
+    activeSeed = lowestSeed || highestSeed;
+  }
+
   const anchorType = isBull ? "BULL_LOW" : "BEAR_HIGH";
 
-  if (!Number.isFinite(activeSeed.price) || activeSeed.price <= 0) {
+  if (!activeSeed || !Number.isFinite(activeSeed.price) || activeSeed.price <= 0) {
     return {
       hasAnchor: false,
       anchorType: "NONE",
